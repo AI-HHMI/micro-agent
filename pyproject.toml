@@ -1,17 +1,25 @@
 [project]
 authors = [{name = "David Ackerman", email = "ackermand@janelia.hhmi.org"}]
-dependencies = ["mcp>=1.0.0", "httpx>=0.27.0"]
-description = "MCP servers for agentic discovery over microscopy repositories"
+dependencies = [
+    "numpy",
+    "tensorstore",
+    "s3fs",
+    "httpx>=0.27.0",
+]
+description = "Cross-repository microscopy training data discovery and loading"
 name = "trailhead"
 requires-python = ">= 3.11"
 version = "0.1.0"
+
+[project.optional-dependencies]
+mcp = ["mcp>=1.0.0"]
 
 [build-system]
 build-backend = "hatchling.build"
 requires = ["hatchling"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["mcp_servers"]
+packages = ["trailhead", "mcp_servers"]
 
 [tool.pixi.project]
 channels = ["conda-forge"]
@@ -21,9 +29,4 @@ platforms = ["linux-64"]
 trailhead = { path = ".", editable = true }
 
 [tool.pixi.tasks]
-idr = "python mcp_servers/idr_server.py"
-empiar = "python mcp_servers/empiar_server.py"
-microns = "python mcp_servers/microns_server.py"
-bia = "python mcp_servers/bia_server.py"
-openorganelle = "python mcp_servers/openorganelle_server.py"
-unified = "python mcp_servers/unified_server.py"
+demo = "python -c \"from trailhead import Registry; r = Registry(); hits = r.search(organelle='mito'); print(f'Found {len(hits)} datasets with mito segmentations:'); [print(f'  {h.id} ({h.repository}) - {h.title}') for h in hits]\""
