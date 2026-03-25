@@ -1,0 +1,1019 @@
+[
+  {
+    "id": "aic_desmosome-1",
+    "em_name": "fibsem-uint8",
+    "scales": [
+      "s0",
+      "s1",
+      "s2",
+      "s3",
+      "s4",
+      "s5",
+      "s6",
+      "s7",
+      "s8"
+    ],
+    "seg_count": 0,
+    "segs": []
+  },
+  {
+    "id": "aic_desmosome-2",
+    "em_name": "fibsem-uint8",
+    "scales": [
+      "s0",
+      "s1",
+      "s2",
+      "s3",
+      "s4",
+      "s5",
+      "s6",
+      "s7",
+      "s8"
+    ],
+    "seg_count": 10,
+    "segs": [
+      "ecs_seg",
+      "endo_seg",
+      "er-mem_seg",
+      "er_seg",
+      "mito-mem_seg",
+      "mito_seg",
+      "nucleus_seg",
+      "pm_seg",
+      "vesicle-mem_seg",
+      "vesicle_seg"
+    ]
+  },
+  {
+    "id": "aic_desmosome-3",
+    "em_name": "fibsem-uint8",
+    "scales": [
+      "s0",
+      "s1",
+      "s2",
+      "s3",
+      "s4",
+      "s5",
+      "s6",
+      "s7",
+      "s8"
+    ],
+    "seg_count": 3,
+    "segs": [
+      "er_seg",
+      "mito_seg",
+      "pm_seg"
+    ]
+  },
+  {
+    "id": "jrc_ccl81-covid-1",
+    "em_name": "fibsem-uint16",
+    "scales": [
+      "s0",
+      "s1",
+      "s2",
+      "s3",
+      "s4"
+    ],
+    "seg_count": 0,
+    "segs": []
+  },
+  {
+    "id": "jrc_cos7-11",
+    "em_name": "fibsem-uint16",
+    "scales": [
+      "s0",
+      "s1",
+      "s2",
+      "s3",
+      "s4",
+      "s5"
+    ],
+    "seg_count": 3,
+    "segs": [
+      "er_seg",
+      "mito-mem_seg",
+      "mito_seg"
+    ]
+  },
+  {
+    "id": "jrc_ctl-id8-1",
+    "em_name": "fibsem-uint16",
+    "scales": [
+      "s0",
+      "s1",
+      "s2",
+      "s3",
+      "s4",
+      "s5"
+    ],
+    "seg_count": 0,
+    "segs": []
+  },
+  {
+    "id": "jrc_ctl-id8-2",
+    "em_name": "fibsem-uint8",
+    "scales": [
+      "s0",
+      "s1",
+      "s2",
+      "s3",
+      "s4",
+      "s5"
+    ],
+    "seg_count": 0,
+    "segs": []
+  },
+  {
+    "id": "jrc_ctl-id8-3",
+    "em_name": "fibsem-uint8",
+    "scales": [
+      "s0",
+      "s1",
+      "s2",
+      "s3",
+      "s4",
+      "s5"
+    ],
+    "seg_count": 0,
+    "segs": []
+  },
+  {
+    "id": "jrc_ctl-id8-4",
+    "em_name": "fibsem-uint8",
+    "scales": [
+      "s0",
+      "s1",
+      "s2",
+      "s3",
+      "s4",
+      "s5"
+    ],
+    "seg_count": 0,
+    "segs": []
+  },
+  {
+    "id": "jrc_ctl-id8-5",
+    "em_name": "fibsem-uint8",
+    "scales": [
+      "s0",
+      "s1",
+      "s2",
+      "s3",
+      "s4",
+      "s5"
+    ],
+    "seg_count": 0,
+    "segs": []
+  },
+  {
+    "id": "jrc_dauer-larva",
+    "em_name": "tem-uint8",
+    "scales": [
+      "s0",
+      "s1",
+      "s2",
+      "s3",
+      "s4",
+      "s5",
+      "s6",
+      "s7",
+      "s8"
+    ],
+    "seg_count": 1,
+    "segs": [
+      "nucleus_seg"
+    ]
+  },
+  {
+    "id": "jrc_fly-acc-calyx-1",
+    "em_name": "fibsem-uint16",
+    "scales": [
+      "s0",
+      "s1",
+      "s2",
+      "s3",
+      "s4",
+      "s5"
+    ],
+    "seg_count": 0,
+    "segs": []
+  },
+  {
+    "id": "jrc_fly-fsb-1",
+    "em_name": "fibsem-uint16",
+    "scales": [
+      "s0",
+      "s1",
+      "s2",
+      "s3",
+      "s4",
+      "s5"
+    ],
+    "seg_count": 0,
+    "segs": []
+  },
+  {
+    "id": "jrc_fly-larva-1",
+    "em_name": "tem-uint8",
+    "scales": [
+      "s0",
+      "s1",
+      "s2",
+      "s3",
+      "s4",
+      "s5",
+      "s6",
+      "s7",
+      "s8"
+    ],
+    "seg_count": 0,
+    "segs": []
+  },
+  {
+    "id": "jrc_fly-mb-z0419-20",
+    "em_name": "fibsem-uint16",
+    "scales": [
+      "s0",
+      "s1",
+      "s2",
+      "s3",
+      "s4",
+      "s5",
+      "s6",
+      "s7"
+    ],
+    "seg_count": 0,
+    "segs": []
+  },
+  {
+    "id": "jrc_hela-2",
+    "em_name": "fibsem-uint16",
+    "scales": [
+      "s0",
+      "s1",
+      "s2",
+      "s3",
+      "s4"
+    ],
+    "seg_count": 28,
+    "segs": [
+      "cent-dapp_seg",
+      "cent_seg",
+      "chrom_seg",
+      "ecs_seg",
+      "endo-mem_seg",
+      "endo_seg",
+      "er-mem_seg",
+      "er_seg",
+      "eres_seg",
+      "golgi-mem_seg",
+      "golgi_seg",
+      "ld-mem_seg",
+      "ld_seg",
+      "lyso-mem_seg",
+      "lyso_seg",
+      "mito-mem_seg",
+      "mito_seg",
+      "mt-out_seg",
+      "ne-mem_seg",
+      "ne_seg",
+      "nhchrom_seg",
+      "np_seg",
+      "nucleolus_seg",
+      "nucleus_seg",
+      "pm_seg",
+      "ribo_seg",
+      "vesicle-mem_seg",
+      "vesicle_seg"
+    ]
+  },
+  {
+    "id": "jrc_hela-21",
+    "em_name": "fibsem-uint8",
+    "scales": [
+      "s0",
+      "s1",
+      "s2",
+      "s3",
+      "s4",
+      "s5"
+    ],
+    "seg_count": 0,
+    "segs": []
+  },
+  {
+    "id": "jrc_hela-22",
+    "em_name": "fibsem-uint8",
+    "scales": [
+      "s0",
+      "s1",
+      "s2",
+      "s3",
+      "s4",
+      "s5"
+    ],
+    "seg_count": 0,
+    "segs": []
+  },
+  {
+    "id": "jrc_hela-3",
+    "em_name": "fibsem-uint16",
+    "scales": [
+      "s0",
+      "s1",
+      "s2",
+      "s3",
+      "s4"
+    ],
+    "seg_count": 28,
+    "segs": [
+      "cent-dapp_seg",
+      "cent_seg",
+      "chrom_seg",
+      "ecs_seg",
+      "endo-mem_seg",
+      "endo_seg",
+      "er-mem_seg",
+      "er_seg",
+      "eres_seg",
+      "golgi-mem_seg",
+      "golgi_seg",
+      "ld-mem_seg",
+      "ld_seg",
+      "lyso-mem_seg",
+      "lyso_seg",
+      "mito-mem_seg",
+      "mito_seg",
+      "mt-out_seg",
+      "ne-mem_seg",
+      "ne_seg",
+      "nhchrom_seg",
+      "np_seg",
+      "nucleolus_seg",
+      "nucleus_seg",
+      "pm_seg",
+      "ribo_seg",
+      "vesicle-mem_seg",
+      "vesicle_seg"
+    ]
+  },
+  {
+    "id": "jrc_hela-4",
+    "em_name": "fibsem-uint16",
+    "scales": [
+      "s0",
+      "s1",
+      "s2",
+      "s3",
+      "s4",
+      "s5"
+    ],
+    "seg_count": 0,
+    "segs": []
+  },
+  {
+    "id": "jrc_hela-bfa",
+    "em_name": "fibsem-uint8",
+    "scales": [
+      "s0",
+      "s1",
+      "s2",
+      "s3",
+      "s4",
+      "s5"
+    ],
+    "seg_count": 4,
+    "segs": [
+      "endo_seg",
+      "er_seg",
+      "mito_seg",
+      "vesicle_seg"
+    ]
+  },
+  {
+    "id": "jrc_hela-h89-1",
+    "em_name": "fibsem-uint16",
+    "scales": [
+      "s0",
+      "s1",
+      "s2",
+      "s3",
+      "s4",
+      "s5"
+    ],
+    "seg_count": 0,
+    "segs": []
+  },
+  {
+    "id": "jrc_hela-h89-2",
+    "em_name": "fibsem-uint16",
+    "scales": [
+      "s0",
+      "s1",
+      "s2",
+      "s3",
+      "s4",
+      "s5"
+    ],
+    "seg_count": 0,
+    "segs": []
+  },
+  {
+    "id": "jrc_hela-nz-2",
+    "em_name": "fibsem-int16",
+    "scales": [
+      "s0",
+      "s1",
+      "s2",
+      "s3"
+    ],
+    "seg_count": 0,
+    "segs": []
+  },
+  {
+    "id": "jrc_jurkat-1",
+    "em_name": "fibsem-uint16",
+    "scales": [
+      "s0",
+      "s1",
+      "s2",
+      "s3",
+      "s4"
+    ],
+    "seg_count": 28,
+    "segs": [
+      "cent-dapp_seg",
+      "cent_seg",
+      "chrom_seg",
+      "ecs_seg",
+      "endo-mem_seg",
+      "endo_seg",
+      "er-mem_seg",
+      "er_seg",
+      "eres_seg",
+      "golgi-mem_seg",
+      "golgi_seg",
+      "ld-mem_seg",
+      "ld_seg",
+      "lyso-mem_seg",
+      "lyso_seg",
+      "mito-mem_seg",
+      "mito_seg",
+      "mt-out_seg",
+      "ne-mem_seg",
+      "ne_seg",
+      "nhchrom_seg",
+      "np_seg",
+      "nucleolus_seg",
+      "nucleus_seg",
+      "pm_seg",
+      "ribo_seg",
+      "vesicle-mem_seg",
+      "vesicle_seg"
+    ]
+  },
+  {
+    "id": "jrc_macrophage-2",
+    "em_name": "fibsem-uint16",
+    "scales": [
+      "s0",
+      "s1",
+      "s2",
+      "s3",
+      "s4"
+    ],
+    "seg_count": 28,
+    "segs": [
+      "cent-dapp_seg",
+      "cent_seg",
+      "chrom_seg",
+      "ecs_seg",
+      "endo-mem_seg",
+      "endo_seg",
+      "er-mem_seg",
+      "er_seg",
+      "eres_seg",
+      "golgi-mem_seg",
+      "golgi_seg",
+      "ld-mem_seg",
+      "ld_seg",
+      "lyso-mem_seg",
+      "lyso_seg",
+      "mito-mem_seg",
+      "mito_seg",
+      "mt-out_seg",
+      "ne-mem_seg",
+      "ne_seg",
+      "nhchrom_seg",
+      "np_seg",
+      "nucleolus_seg",
+      "nucleus_seg",
+      "pm_seg",
+      "ribo_seg",
+      "vesicle-mem_seg",
+      "vesicle_seg"
+    ]
+  },
+  {
+    "id": "jrc_mus-epididymis-1",
+    "em_name": "fibsem-uint8",
+    "scales": [
+      "s0",
+      "s1",
+      "s2",
+      "s3",
+      "s4",
+      "s5",
+      "s6",
+      "s7",
+      "s8",
+      "s9"
+    ],
+    "seg_count": 1,
+    "segs": [
+      "nucleus_seg"
+    ]
+  },
+  {
+    "id": "jrc_mus-epididymis-2",
+    "em_name": "fibsem-uint8",
+    "scales": [
+      "s0",
+      "s1",
+      "s2",
+      "s3",
+      "s4",
+      "s5",
+      "s6",
+      "s7",
+      "s8"
+    ],
+    "seg_count": 1,
+    "segs": [
+      "nucleus_seg"
+    ]
+  },
+  {
+    "id": "jrc_mus-guard-hair-follicle",
+    "em_name": "fibsem-uint8",
+    "scales": [
+      "s0",
+      "s1",
+      "s10",
+      "s11",
+      "s12",
+      "s2",
+      "s3",
+      "s4",
+      "s5",
+      "s6",
+      "s7",
+      "s8",
+      "s9"
+    ],
+    "seg_count": 0,
+    "segs": []
+  },
+  {
+    "id": "jrc_mus-heart-1",
+    "em_name": "fibsem-uint8",
+    "scales": [
+      "s0",
+      "s1",
+      "s10",
+      "s11",
+      "s12",
+      "s13",
+      "s2",
+      "s3",
+      "s4",
+      "s5",
+      "s6",
+      "s7",
+      "s8",
+      "s9"
+    ],
+    "seg_count": 2,
+    "segs": [
+      "ecs_seg",
+      "nucleus_seg"
+    ]
+  },
+  {
+    "id": "jrc_mus-hippocampus-1",
+    "em_name": "fibsem-uint8",
+    "scales": [
+      "s0",
+      "s1",
+      "s10",
+      "s11",
+      "s12",
+      "s2",
+      "s3",
+      "s4",
+      "s5",
+      "s6",
+      "s7",
+      "s8",
+      "s9"
+    ],
+    "seg_count": 1,
+    "segs": [
+      "nucleus_seg"
+    ]
+  },
+  {
+    "id": "jrc_mus-kidney",
+    "em_name": "fibsem-uint8",
+    "scales": [
+      "s0",
+      "s1",
+      "s2",
+      "s3",
+      "s4"
+    ],
+    "seg_count": 1,
+    "segs": [
+      "empanada-mito_seg"
+    ]
+  },
+  {
+    "id": "jrc_mus-kidney-2",
+    "em_name": "fibsem-uint8",
+    "scales": [
+      "s0",
+      "s1",
+      "s10",
+      "s11",
+      "s12",
+      "s2",
+      "s3",
+      "s4",
+      "s5",
+      "s6",
+      "s7",
+      "s8",
+      "s9"
+    ],
+    "seg_count": 0,
+    "segs": []
+  },
+  {
+    "id": "jrc_mus-kidney-3",
+    "em_name": "fibsem-uint8",
+    "scales": [
+      "s0",
+      "s1",
+      "s10",
+      "s11",
+      "s12",
+      "s2",
+      "s3",
+      "s4",
+      "s5",
+      "s6",
+      "s7",
+      "s8",
+      "s9"
+    ],
+    "seg_count": 1,
+    "segs": [
+      "nucleus_seg"
+    ]
+  },
+  {
+    "id": "jrc_mus-liver",
+    "em_name": "fibsem-uint8",
+    "scales": [
+      "s0",
+      "s1",
+      "s10",
+      "s11",
+      "s12",
+      "s2",
+      "s3",
+      "s4",
+      "s5",
+      "s6",
+      "s7",
+      "s8",
+      "s9"
+    ],
+    "seg_count": 6,
+    "segs": [
+      "ecs_seg",
+      "er_seg",
+      "mito-mem_seg",
+      "mito_seg",
+      "nucleus_seg",
+      "pm_seg"
+    ]
+  },
+  {
+    "id": "jrc_mus-liver-2",
+    "em_name": "fibsem-uint8",
+    "scales": [
+      "s0",
+      "s1",
+      "s10",
+      "s11",
+      "s12",
+      "s2",
+      "s3",
+      "s4",
+      "s5",
+      "s6",
+      "s7",
+      "s8",
+      "s9"
+    ],
+    "seg_count": 0,
+    "segs": []
+  },
+  {
+    "id": "jrc_mus-liver-3",
+    "em_name": "fibsem-uint8",
+    "scales": [
+      "s0",
+      "s1",
+      "s10",
+      "s11",
+      "s12",
+      "s2",
+      "s3",
+      "s4",
+      "s5",
+      "s6",
+      "s7",
+      "s8",
+      "s9"
+    ],
+    "seg_count": 1,
+    "segs": [
+      "nucleus_seg"
+    ]
+  },
+  {
+    "id": "jrc_mus-liver-zon-2",
+    "em_name": "fibsem-uint8",
+    "scales": [
+      "s0",
+      "s1",
+      "s10",
+      "s11",
+      "s12",
+      "s13",
+      "s2",
+      "s3",
+      "s4",
+      "s5",
+      "s6",
+      "s7",
+      "s8",
+      "s9"
+    ],
+    "seg_count": 1,
+    "segs": [
+      "nucleus_seg"
+    ]
+  },
+  {
+    "id": "jrc_mus-meissner-corpuscle-1",
+    "em_name": "fibsem-uint8",
+    "scales": [
+      "s0",
+      "s1",
+      "s10",
+      "s11",
+      "s2",
+      "s3",
+      "s4",
+      "s5",
+      "s6",
+      "s7",
+      "s8",
+      "s9"
+    ],
+    "seg_count": 0,
+    "segs": []
+  },
+  {
+    "id": "jrc_mus-meissner-corpuscle-2",
+    "em_name": "fibsem-uint8",
+    "scales": [
+      "s0",
+      "s1",
+      "s10",
+      "s11",
+      "s12",
+      "s2",
+      "s3",
+      "s4",
+      "s5",
+      "s6",
+      "s7",
+      "s8",
+      "s9"
+    ],
+    "seg_count": 0,
+    "segs": []
+  },
+  {
+    "id": "jrc_mus-pacinian-corpuscle",
+    "em_name": "fibsem-uint8",
+    "scales": [
+      "s0",
+      "s1",
+      "s10",
+      "s11",
+      "s12",
+      "s2",
+      "s3",
+      "s4",
+      "s5",
+      "s6",
+      "s7",
+      "s8",
+      "s9"
+    ],
+    "seg_count": 0,
+    "segs": []
+  },
+  {
+    "id": "jrc_mus-pancreas-1",
+    "em_name": "fibsem-uint16",
+    "scales": [
+      "s0",
+      "s1",
+      "s2",
+      "s3",
+      "s4",
+      "s5"
+    ],
+    "seg_count": 0,
+    "segs": []
+  },
+  {
+    "id": "jrc_mus-pancreas-2",
+    "em_name": "fibsem-uint8",
+    "scales": [
+      "s0",
+      "s1",
+      "s2",
+      "s3",
+      "s4",
+      "s5"
+    ],
+    "seg_count": 0,
+    "segs": []
+  },
+  {
+    "id": "jrc_mus-pancreas-3",
+    "em_name": "fibsem-uint16",
+    "scales": [
+      "s0",
+      "s1",
+      "s2",
+      "s3",
+      "s4",
+      "s5"
+    ],
+    "seg_count": 0,
+    "segs": []
+  },
+  {
+    "id": "jrc_mus-pancreas-4",
+    "em_name": "fibsem-uint8",
+    "scales": [
+      "s0",
+      "s1",
+      "s10",
+      "s11",
+      "s12",
+      "s2",
+      "s3",
+      "s4",
+      "s5",
+      "s6",
+      "s7",
+      "s8",
+      "s9"
+    ],
+    "seg_count": 1,
+    "segs": [
+      "nucleus_seg"
+    ]
+  },
+  {
+    "id": "jrc_mus-salivary-1",
+    "em_name": "fibsem-uint8",
+    "scales": [
+      "s0",
+      "s1",
+      "s10",
+      "s11",
+      "s12",
+      "s2",
+      "s3",
+      "s4",
+      "s5",
+      "s6",
+      "s7",
+      "s8",
+      "s9"
+    ],
+    "seg_count": 0,
+    "segs": []
+  },
+  {
+    "id": "jrc_mus-sc-zp104a",
+    "em_name": "fibsem-uint8",
+    "scales": [
+      "s0",
+      "s1",
+      "s2",
+      "s3",
+      "s4",
+      "s5",
+      "s6"
+    ],
+    "seg_count": 0,
+    "segs": []
+  },
+  {
+    "id": "jrc_mus-sc-zp105a",
+    "em_name": "fibsem-uint8",
+    "scales": [
+      "s0",
+      "s1",
+      "s2",
+      "s3",
+      "s4",
+      "s5",
+      "s6"
+    ],
+    "seg_count": 0,
+    "segs": []
+  },
+  {
+    "id": "jrc_mus-skin-1",
+    "em_name": "fibsem-uint8",
+    "scales": [
+      "s0",
+      "s1",
+      "s10",
+      "s11",
+      "s12",
+      "s2",
+      "s3",
+      "s4",
+      "s5",
+      "s6",
+      "s7",
+      "s8",
+      "s9"
+    ],
+    "seg_count": 1,
+    "segs": [
+      "nucleus_seg"
+    ]
+  },
+  {
+    "id": "jrc_mus-thymus-1",
+    "em_name": "fibsem-uint8",
+    "scales": [
+      "s0",
+      "s1",
+      "s10",
+      "s11",
+      "s12",
+      "s2",
+      "s3",
+      "s4",
+      "s5",
+      "s6",
+      "s7",
+      "s8",
+      "s9"
+    ],
+    "seg_count": 1,
+    "segs": [
+      "nucleus_seg"
+    ]
+  },
+  {
+    "id": "jrc_sum159-1",
+    "em_name": "fibsem-uint16",
+    "scales": [
+      "s0",
+      "s1",
+      "s2",
+      "s3",
+      "s4",
+      "s5"
+    ],
+    "seg_count": 0,
+    "segs": []
+  }
+]
