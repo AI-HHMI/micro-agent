@@ -2,12 +2,14 @@
 
 The registry knows what datasets exist, what organisms/organelles they contain,
 what formats they're in, and how to access them. It combines a curated local
-catalog with live API queries where available.
+catalog with dynamically discovered entries.
 """
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
+from pathlib import Path
 
 
 @dataclass
@@ -28,6 +30,7 @@ class DatasetEntry:
     access_url: str = ""
     raw_path: str = ""
     segmentation_paths: dict[str, str] = field(default_factory=dict)
+    supports_random_access: bool = True  # False for FTP/download-only repos like EMPIAR
 
     def matches(self, query: str) -> bool:
         """Check if this entry matches a free-text query."""
@@ -46,61 +49,321 @@ class DatasetEntry:
 
 
 # ---------------------------------------------------------------------------
-# Curated catalog — these are datasets we know have both EM + segmentations
-# and are accessible on public cloud storage.
+# Catalog loading helpers
 # ---------------------------------------------------------------------------
 
-def _oo_entry(
-    id: str,
-    title: str,
-    organism: str,
-    cell_type: str,
-    organelles: list[str],
-    em_name: str = "fibsem-uint16",
-    voxel_size_nm: list[float] | None = None,
-) -> DatasetEntry:
-    """Helper to create an OpenOrganelle dataset entry with standard paths.
+CATALOG_DIR = Path(__file__).parent / "catalog"
 
-    S3 layout: {id}/{id}.n5/em/{em_name}/s{N} for raw
-               {id}/{id}.n5/labels/{organelle}_seg/s{N} for segmentations
-    """
-    n5_base = f"{id}/{id}.n5"
-    return DatasetEntry(
-        id=id,
-        repository="OpenOrganelle",
-        title=title,
-        organism=organism,
-        cell_type=cell_type,
+
+def _load_openorganelle_catalog() -> list[DatasetEntry]:
+    """Load OpenOrganelle datasets from the JSON catalog."""
+    catalog_path = CATALOG_DIR / "openorganelle.json"
+    if not catalog_path.exists():
+        return []
+
+    with open(catalog_path) as f:
+        items = json.load(f)
+
+    entries: list[DatasetEntry] = []
+    for item in items:
+        ds_id = item["id"]
+        em_name = item.get("em_name", "fibsem-uint16")
+        n5_base = f"{ds_id}/{ds_id}.n5"
+        organelles = item.get("organelles", [])
+        # Strip _seg suffix from organelle names — the catalog stores bare names
+        clean_organelles = [o.replace("_seg", "") for o in organelles]
+
+        entries.append(DatasetEntry(
+            id=ds_id,
+            repository="OpenOrganelle",
+            title=item.get("title", ds_id),
+            organism=item.get("organism", ""),
+            cell_type=item.get("cell_type", ""),
+            imaging_modality=item.get("imaging_modality", "FIB-SEM"),
+            voxel_size_nm=item.get("voxel_size_nm", [8.0, 8.0, 8.0]),
+            organelles=clean_organelles,
+            has_segmentation=item.get("has_segmentation", len(organelles) > 0),
+            has_raw=True,
+            data_format="n5",
+            access_url=f"s3://janelia-cosem-datasets/{ds_id}/",
+            raw_path=f"{n5_base}/em/{em_name}",
+            segmentation_paths={
+                o: f"{n5_base}/labels/{o}_seg" for o in clean_organelles
+            },
+        ))
+    return entries
+
+
+def _load_microns_catalog() -> list[DatasetEntry]:
+    """Load MICrONS datasets from the JSON catalog."""
+    catalog_path = CATALOG_DIR / "microns.json"
+    if not catalog_path.exists():
+        return []
+
+    with open(catalog_path) as f:
+        items = json.load(f)
+
+    entries: list[DatasetEntry] = []
+    for item in items:
+        entries.append(DatasetEntry(
+            id=item["id"],
+            repository="OpenNeuroData",
+            title=item.get("title", item["id"]),
+            organism=item.get("organism", ""),
+            cell_type=item.get("cell_type", ""),
+            imaging_modality="FIB-SEM",
+            organelles=item.get("organelles", []),
+            has_segmentation=item.get("has_segmentation", False),
+            has_raw=True,
+            data_format="neuroglancer_precomputed",
+            raw_path=item.get("raw_url", ""),
+            segmentation_paths={
+                org: item.get("seg_url", "") for org in item.get("organelles", [])
+            },
+        ))
+    return entries
+
+
+# Stub entries for IDR and EMPIAR — these repos require live API queries
+# for full catalog, but we include a few known entries.
+_EMPIAR_ENTRIES = [
+    DatasetEntry(
+        id="EMPIAR-10310",
+        repository="EMPIAR",
+        title="FIB-SEM of Platynereis parapodia (Müller et al.)",
+        organism="Platynereis dumerilii",
+        cell_type="parapodia",
         imaging_modality="FIB-SEM",
-        voxel_size_nm=voxel_size_nm or [8.0, 8.0, 8.0],
-        organelles=organelles,
+        has_segmentation=False,
+        has_raw=True,
+        data_format="tiff",
+        access_url="https://ftp.ebi.ac.uk/empiar/world_availability/10310/data/",
+        raw_path="20180813_platynereis_parapodia/raw_16bit",
+    ),
+]
+
+_IDR_ENTRIES = [
+    DatasetEntry(
+        id="9836842",
+        repository="IDR",
+        title="3D FIB-SEM of yeast cells (Xu et al.)",
+        organism="Saccharomyces cerevisiae",
+        cell_type="yeast",
+        imaging_modality="FIB-SEM",
+        has_segmentation=False,
+        has_raw=True,
+        data_format="ome-zarr",
+    ),
+]
+
+# GCS-hosted datasets using neuroglancer_precomputed format
+# These all use the MICrONS backend (same tensorstore driver)
+_GCS_ENTRIES = [
+    DatasetEntry(
+        id="h01_human_cortex",
+        repository="Google",
+        title="H01 — Human cortex petascale reconstruction (Google/Lichtman)",
+        organism="Homo sapiens",
+        cell_type="temporal cortex neuron",
+        imaging_modality="serial-section EM",
+        organelles=["neuron"],
         has_segmentation=True,
+        has_raw=True,
+        data_format="neuroglancer_precomputed",
+        raw_path="gs://h01-release/data/20210601/4nm_raw",
+        segmentation_paths={"neuron": "gs://h01-release/data/20210601/c3"},
+    ),
+    DatasetEntry(
+        id="hemibrain_v1.2",
+        repository="FlyEM",
+        title="FlyEM hemibrain v1.2 — Drosophila central brain connectome",
+        organism="Drosophila melanogaster",
+        cell_type="central brain neuron",
+        imaging_modality="FIB-SEM",
+        organelles=["neuron", "mito"],
+        has_segmentation=True,
+        has_raw=True,
+        data_format="neuroglancer_precomputed",
+        raw_path="gs://neuroglancer-janelia-flyem-hemibrain/emdata/raw/jpeg",
+        segmentation_paths={
+            "neuron": "gs://neuroglancer-janelia-flyem-hemibrain/v1.2/segmentation",
+            "mito": "gs://neuroglancer-janelia-flyem-hemibrain/v1.2/mito-objects",
+        },
+    ),
+    DatasetEntry(
+        id="fafb_v14",
+        repository="Google",
+        title="FAFB v14 — Full adult fly brain EM",
+        organism="Drosophila melanogaster",
+        cell_type="whole brain neuron",
+        imaging_modality="serial-section TEM",
+        organelles=["neuron"],
+        has_segmentation=True,
+        has_raw=True,
+        data_format="neuroglancer_precomputed",
+        raw_path="gs://neuroglancer-fafb-data/fafb_v14/fafb_v14_orig",
+        segmentation_paths={"neuron": "gs://fafb-ffn1-20200412/segmentation"},
+    ),
+    DatasetEntry(
+        id="kasthuri2011",
+        repository="Google",
+        title="Kasthuri 2011 — Mouse somatosensory cortex (saturated reconstruction)",
+        organism="Mus musculus",
+        cell_type="somatosensory cortex",
+        imaging_modality="serial-section EM",
+        organelles=["neuron"],
+        has_segmentation=True,
+        has_raw=True,
+        data_format="neuroglancer_precomputed",
+        raw_path="gs://neuroglancer-public-data/kasthuri2011/image",
+        segmentation_paths={"neuron": "gs://neuroglancer-public-data/kasthuri2011/ground_truth"},
+    ),
+    DatasetEntry(
+        id="flyem_fib25",
+        repository="FlyEM",
+        title="FlyEM FIB-25 — Drosophila medulla 7-column",
+        organism="Drosophila melanogaster",
+        cell_type="medulla neuron",
+        imaging_modality="FIB-SEM",
+        organelles=["neuron"],
+        has_segmentation=True,
+        has_raw=True,
+        data_format="neuroglancer_precomputed",
+        raw_path="gs://neuroglancer-public-data/flyem_fib-25/image",
+        segmentation_paths={"neuron": "gs://neuroglancer-public-data/flyem_fib-25/ground_truth"},
+    ),
+    # Janelia FlyEM — MANC (Male Adult Nerve Cord)
+    DatasetEntry(
+        id="manc_v1.0",
+        repository="FlyEM",
+        title="MANC — Male adult nerve cord connectome (Janelia FlyEM)",
+        organism="Drosophila melanogaster",
+        cell_type="VNC + brain neuron",
+        imaging_modality="FIB-SEM",
+        organelles=["neuron"],
+        has_segmentation=True,
+        has_raw=True,
+        data_format="neuroglancer_precomputed",
+        raw_path="gs://flyem-male-cns/em/em-clahe-jpeg",
+        segmentation_paths={"neuron": "gs://flyem-male-cns/v0.9/segmentation"},
+    ),
+    # Janelia FlyEM — Optic Lobe
+    DatasetEntry(
+        id="flyem_optic_lobe",
+        repository="FlyEM",
+        title="FlyEM optic lobe — Drosophila visual system connectome",
+        organism="Drosophila melanogaster",
+        cell_type="optic lobe neuron",
+        imaging_modality="FIB-SEM",
+        organelles=["neuron"],
+        has_segmentation=True,
+        has_raw=True,
+        data_format="neuroglancer_precomputed",
+        raw_path="gs://flyem-optic-lobe/em/em-clahe-jpeg",
+        segmentation_paths={"neuron": "gs://flyem-optic-lobe/v1.1/segmentation"},
+    ),
+    # FlyWire (FAFB with Seung Lab segmentation)
+    DatasetEntry(
+        id="flywire_fafb",
+        repository="Google",
+        title="FlyWire — Full adult fly brain (Seung Lab proofread connectome)",
+        organism="Drosophila melanogaster",
+        cell_type="whole brain neuron",
+        imaging_modality="serial-section TEM",
+        organelles=["neuron"],
+        has_segmentation=False,
+        has_raw=True,
+        data_format="neuroglancer_precomputed",
+        raw_path="gs://microns-seunglab/drosophila_v0/alignment/image_rechunked",
+    ),
+]
+
+# Open NeuroData datasets on AWS S3 (neuroglancer_precomputed)
+_OPENNEURODATA_ENTRIES = [
+    DatasetEntry(
+        id="bock11",
+        repository="OpenNeuroData",
+        title="Bock et al. 2011 — Mouse primary visual cortex",
+        organism="Mus musculus",
+        cell_type="visual cortex",
+        imaging_modality="serial-section TEM",
+        has_segmentation=False,
+        has_raw=True,
+        data_format="neuroglancer_precomputed",
+        raw_path="s3://open-neurodata/bock11/image",
+    ),
+    DatasetEntry(
+        id="hildebrand_zebrafish",
+        repository="OpenNeuroData",
+        title="Hildebrand 2017 — Larval zebrafish whole-brain EM",
+        organism="Danio rerio",
+        cell_type="whole brain",
+        imaging_modality="serial-section TEM",
+        has_segmentation=False,
+        has_raw=True,
+        data_format="neuroglancer_precomputed",
+        raw_path="s3://open-neurodata/hildebrand/130201zf142/160515_SWiFT_60nmpx",
+    ),
+    DatasetEntry(
+        id="kharris15_spine",
+        repository="OpenNeuroData",
+        title="Harris 2015 — Rat hippocampal CA1 neuropil",
+        organism="Rattus norvegicus",
+        cell_type="hippocampal CA1",
+        imaging_modality="serial-section TEM",
+        organelles=["neuron"],
+        has_segmentation=True,
+        has_raw=True,
+        data_format="neuroglancer_precomputed",
+        raw_path="s3://open-neurodata/kharris15/spine/em",
+        segmentation_paths={"neuron": "s3://open-neurodata/kharris15/spine/anno"},
+    ),
+    DatasetEntry(
+        id="wanner16_zebrafish_ob",
+        repository="OpenNeuroData",
+        title="Wanner 2016 — Zebrafish olfactory bulb (1022 neurons)",
+        organism="Danio rerio",
+        cell_type="olfactory bulb",
+        imaging_modality="SBF-SEM",
+        has_segmentation=False,
+        has_raw=True,
+        data_format="neuroglancer_precomputed",
+        raw_path="s3://open-neurodata/wanner16/AA201605/SBEM1",
+    ),
+    DatasetEntry(
+        id="witvliet2020_celegans_1",
+        repository="OpenNeuroData",
+        title="Witvliet 2020 — C. elegans developmental connectome (stage 1)",
+        organism="Caenorhabditis elegans",
+        cell_type="whole brain",
+        imaging_modality="serial-section TEM",
+        has_segmentation=False,
+        has_raw=True,
+        data_format="neuroglancer_precomputed",
+        raw_path="s3://bossdb-open-data/witvliet2020/Dataset_1/em",
+    ),
+]
+
+# CellMap publications bucket — ground truth training crops
+_CELLMAP_PUBLICATIONS_ENTRIES = [
+    DatasetEntry(
+        id="cellmap_gt_hela2",
+        repository="OpenOrganelle",
+        title="CellMap ground truth — HeLa-2 training crops (Heinrich 2021)",
+        organism="Homo sapiens",
+        cell_type="HeLa",
+        imaging_modality="FIB-SEM",
+        organelles=["mito", "er", "nucleus", "golgi", "vesicle", "pm", "endo"],
+        has_segmentation=True,
+        has_raw=True,
         data_format="n5",
-        access_url=f"s3://janelia-cosem-datasets/{id}/",
-        raw_path=f"{n5_base}/em/{em_name}",
-        segmentation_paths={org: f"{n5_base}/labels/{org}_seg" for org in organelles},
-    )
-
-
-# Verified against actual S3 bucket contents (2026-03-24).
-_OPENORGANELLE_DATASETS = [
-    _oo_entry("jrc_hela-2", "HeLa cell (Interphase) #2",
-              "Homo sapiens", "HeLa",
-              ["mito", "er", "nucleus", "golgi", "vesicle", "mt-out", "pm", "endo"],
-              em_name="fibsem-uint16"),
-    _oo_entry("jrc_hela-3", "HeLa cell (Interphase) #3",
-              "Homo sapiens", "HeLa",
-              ["mito", "er", "nucleus", "golgi"],
-              em_name="fibsem-uint16",
-              voxel_size_nm=[4.0, 4.0, 4.0]),
-    _oo_entry("jrc_macrophage-2", "Macrophage #2",
-              "Homo sapiens", "macrophage",
-              ["mito", "er", "nucleus"],
-              em_name="fibsem-uint16"),
-    _oo_entry("jrc_mus-liver", "Mouse liver",
-              "Mus musculus", "hepatocyte",
-              ["mito", "er", "nucleus", "pm"],
-              em_name="fibsem-uint8"),
+        access_url="s3://janelia-cosem-publications/heinrich-2021a/",
+        raw_path="jrc_hela-2/jrc_hela-2.n5/volumes/raw",
+        segmentation_paths={
+            org: f"jrc_hela-2/jrc_hela-2.n5/volumes/labels/{org}" for org in
+            ["mito", "er", "nucleus", "golgi", "vesicle", "pm", "endo"]
+        },
+    ),
 ]
 
 
@@ -119,12 +382,46 @@ class Registry:
         self._load_curated()
 
     def _load_curated(self) -> None:
-        """Load the built-in curated catalog."""
-        self._entries.extend(_OPENORGANELLE_DATASETS)
+        """Load all curated catalogs."""
+        self._entries.extend(_load_openorganelle_catalog())
+        self._entries.extend(_load_microns_catalog())
+        self._entries.extend(_EMPIAR_ENTRIES)
+        self._entries.extend(_IDR_ENTRIES)
+        self._entries.extend(_GCS_ENTRIES)
+        self._entries.extend(_OPENNEURODATA_ENTRIES)
+        self._entries.extend(_CELLMAP_PUBLICATIONS_ENTRIES)
 
     def add(self, entry: DatasetEntry) -> None:
         """Add a dataset entry to the registry."""
         self._entries.append(entry)
+
+    def load_discovered(self, path: str | Path) -> int:
+        """Load entries from a discovery JSON file. Returns count added."""
+        path = Path(path)
+        if not path.exists():
+            return 0
+        with open(path) as f:
+            items = json.load(f)
+        count = 0
+        for item in items:
+            entry = DatasetEntry(
+                id=item["id"],
+                repository=item.get("repository", "discovered"),
+                title=item.get("title", item["id"]),
+                organism=item.get("organism", ""),
+                cell_type=item.get("cell_type", ""),
+                imaging_modality=item.get("imaging_modality", ""),
+                organelles=item.get("organelles", []),
+                has_segmentation=item.get("has_segmentation", False),
+                has_raw=item.get("has_raw", True),
+                data_format=item.get("data_format", ""),
+                access_url=item.get("access_url", ""),
+                raw_path=item.get("raw_path", ""),
+                segmentation_paths=item.get("segmentation_paths", {}),
+            )
+            self._entries.append(entry)
+            count += 1
+        return count
 
     @property
     def entries(self) -> list[DatasetEntry]:
@@ -140,19 +437,7 @@ class Registry:
         repository: str = "",
         has_segmentation: bool | None = None,
     ) -> list[DatasetEntry]:
-        """Search the registry with optional filters.
-
-        Args:
-            query: Free-text search across all fields.
-            organelle: Filter by organelle name (e.g., "mito", "er").
-            organism: Filter by organism (e.g., "Homo sapiens").
-            cell_type: Filter by cell type (e.g., "HeLa").
-            repository: Filter by repository name (e.g., "OpenOrganelle").
-            has_segmentation: If True, only return datasets with segmentations.
-
-        Returns:
-            List of matching DatasetEntry objects.
-        """
+        """Search the registry with optional filters."""
         results = self._entries
 
         if query:
