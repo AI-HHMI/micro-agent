@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from abc import ABC, abstractmethod
 
 import numpy as np
@@ -19,12 +20,7 @@ class Backend(ABC):
 
     @abstractmethod
     def get_volume_shape(self, entry: DatasetEntry, scale: int = 0) -> tuple[int, ...]:
-        """Return the (Z, Y, X) shape of the raw volume at the given scale level.
-
-        Args:
-            entry: Dataset registry entry.
-            scale: Multiscale pyramid level (0 = full resolution).
-        """
+        """Return the (Z, Y, X) shape of the raw volume at the given scale level."""
         ...
 
     @abstractmethod
@@ -35,17 +31,7 @@ class Backend(ABC):
         shape: tuple[int, int, int],
         scale: int = 0,
     ) -> NDArray[np.uint8]:
-        """Read a 3D crop from the raw EM volume.
-
-        Args:
-            entry: Dataset registry entry.
-            offset: (z, y, x) start coordinates.
-            shape: (z, y, x) crop size.
-            scale: Multiscale pyramid level (0 = full resolution).
-
-        Returns:
-            numpy array of shape (z, y, x), dtype uint8.
-        """
+        """Read a 3D crop from the raw EM volume."""
         ...
 
     @abstractmethod
@@ -57,19 +43,49 @@ class Backend(ABC):
         shape: tuple[int, int, int],
         scale: int = 0,
     ) -> NDArray[np.uint8]:
-        """Read a 3D crop from a segmentation label volume.
-
-        Args:
-            entry: Dataset registry entry.
-            organelle: Organelle name (e.g., "mito", "er").
-            offset: (z, y, x) start coordinates.
-            shape: (z, y, x) crop size.
-            scale: Multiscale pyramid level (0 = full resolution).
-
-        Returns:
-            numpy array of shape (z, y, x). Non-zero values indicate the organelle.
-        """
+        """Read a 3D crop from a segmentation label volume."""
         ...
+
+    def get_voxel_size(self, entry: DatasetEntry, scale: int = 0) -> tuple[float, float, float]:
+        """Return (z, y, x) voxel size in nm at the given scale level.
+
+        Default implementation uses entry.voxel_size_nm with 2x per scale level.
+        Subclasses should override to read from volume metadata.
+        """
+        if entry.voxel_size_nm and len(entry.voxel_size_nm) >= 3:
+            base = entry.voxel_size_nm[:3]
+        else:
+            base = [8.0, 8.0, 8.0]
+        factor = 2 ** scale
+        return (base[0] * factor, base[1] * factor, base[2] * factor)
+
+    def get_num_scales(self, entry: DatasetEntry) -> int:
+        """Return the number of available scale levels.
+
+        Default: try opening scales until one fails, max 10.
+        Subclasses should override if they can determine this from metadata.
+        """
+        return 6  # safe default for most multiscale pyramids
+
+    def pick_scale(
+        self,
+        entry: DatasetEntry,
+        target_nm: tuple[float, float, float],
+    ) -> int:
+        """Pick the coarsest scale level that's still finer than target_nm.
+
+        Returns the scale index. If all scales are coarser than target,
+        returns 0 (finest available).
+        """
+        num = self.get_num_scales(entry)
+        best = 0
+        for s in range(num):
+            vox = self.get_voxel_size(entry, s)
+            if all(v <= t for v, t in zip(vox, target_nm)):
+                best = s
+            else:
+                break
+        return best
 
     def read_crop(
         self,
@@ -79,11 +95,7 @@ class Backend(ABC):
         shape: tuple[int, int, int],
         scale: int = 0,
     ) -> tuple[NDArray[np.uint8], NDArray[np.uint8]]:
-        """Read both raw and segmentation crops.
-
-        Returns:
-            Tuple of (raw_crop, seg_crop) numpy arrays.
-        """
+        """Read both raw and segmentation crops."""
         raw = self.read_raw_crop(entry, offset, shape, scale)
         seg = self.read_segmentation_crop(entry, organelle, offset, shape, scale)
         return raw, seg

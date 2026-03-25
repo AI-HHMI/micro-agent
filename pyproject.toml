@@ -2,9 +2,12 @@
 authors = [{name = "David Ackerman", email = "ackermand@janelia.hhmi.org"}]
 dependencies = [
     "numpy",
+    "scipy",
     "tensorstore",
     "s3fs",
+    "zarr>=2.16,<3",
     "httpx>=0.27.0",
+    "neuroglancer",
 ]
 description = "Cross-repository microscopy training data discovery and loading"
 name = "trailhead"
@@ -30,3 +33,5 @@ trailhead = { path = ".", editable = true }
 
 [tool.pixi.tasks]
 demo = "python -c \"from trailhead import Registry; r = Registry(); hits = r.search(organelle='mito'); print(f'Found {len(hits)} datasets with mito segmentations:'); [print(f'  {h.id} ({h.repository}) - {h.title}') for h in hits]\""
+view = "python -m trailhead.visualize"
+discover = "python -m trailhead.discover"
