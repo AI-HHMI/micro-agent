@@ -65,13 +65,8 @@ def _glsl_name(name: str, fallback: str) -> str:
 
 def _update_viewer(sample: CropSample) -> None:
     """Push a new crop into the neuroglancer viewer."""
-    if any(v > 0 for v in sample.resolution_nm):
-        vox = sample.resolution_nm
-        vox_units = ["nm", "nm", "nm"]
-    else:
-        # Unknown voxel size — display in pixel units
-        vox = (1.0, 1.0, 1.0)
-        vox_units = ["", "", ""]
+    vox = sample.resolution_nm if any(v > 0 for v in sample.resolution_nm) else (1.0, 1.0, 1.0)
+    vox_units = ["nm", "nm", "nm"]
 
     mc = sample.raw_multichannel  # (C, Z, Y, X) or None
 
@@ -691,7 +686,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
   <div class="ctrl-section">
     <div class="ctrl-label">Options</div>
     <div class="checkbox-row">
-      <input type="checkbox" id="require-seg">
+      <input type="checkbox" id="require-seg" disabled>
       <span>Require segmentation</span>
     </div>
     <div class="checkbox-row">
@@ -733,7 +728,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
 <div class="viewer-area">
   <div class="meta-bar" id="meta-bar">
     <div id="voxel-warning" style="display:none; background:rgba(255,107,107,0.12); border:1px solid rgba(255,107,107,0.4); border-radius:3px; padding:4px 8px; color:var(--red); font-size:10px; line-height:1.4;">
-      No voxel size metadata found in file — showing raw voxels at native size, no resampling applied.
+      No voxel size metadata in file — crop is raw voxels (no resampling). Displayed resolution is nominal.
     </div>
     <div class="meta-row" id="meta-row-1"></div>
     <div class="meta-row" id="meta-row-2"></div>
@@ -782,13 +777,17 @@ async function init() {
 }
 init();
 
-// --- Organelle → toggle "require nonzero seg" ---
+// --- Organelle → toggle seg-related checkboxes ---
 document.getElementById('organelle').addEventListener('change', function() {
+  const reqSeg = document.getElementById('require-seg');
   const segCb = document.getElementById('require-nonempty-seg');
   if (!this.value) {
+    reqSeg.checked = false;
+    reqSeg.disabled = true;
     segCb.checked = false;
     segCb.disabled = true;
   } else {
+    reqSeg.disabled = false;
     segCb.disabled = false;
   }
 });
@@ -918,18 +917,11 @@ async function doNext() {
       ${chInfo}
       <span><span class="meta-key">seg:</span> <span class="meta-val ${segClass}">${data.seg_status}</span></span>
     `;
-    // Resolution display — handle unknown voxel size
-    const voxUnknown = data.voxel_size_is_estimated;
-    let resText, srcText;
-    if (voxUnknown) {
-      resText = `<span class="meta-val bad">unknown (raw voxels)</span>`;
-      srcText = `<span class="meta-val bad">unknown</span>`;
-    } else {
-      resText = `<span class="meta-val">${data.resolution_nm.join(' x ')} nm</span>`;
-      srcText = `<span class="meta-val">${data.source_resolution_nm.join(' x ')} nm @ s${data.scale_used}</span>`;
-    }
+    const srcText = data.voxel_size_is_estimated
+      ? `<span class="meta-val bad">unknown (no metadata)</span>`
+      : `<span class="meta-val">${data.source_resolution_nm.join(' x ')} nm @ s${data.scale_used}</span>`;
     document.getElementById('meta-row-2').innerHTML = `
-      <span><span class="meta-key">resolution:</span> ${resText}</span>
+      <span><span class="meta-key">resolution:</span> <span class="meta-val">${data.resolution_nm.join(' x ')} nm</span></span>
       <span><span class="meta-key">source:</span> ${srcText}</span>
       <span><span class="meta-key">offset:</span> <span class="meta-val">(${data.offset.join(', ')})</span></span>
       <span><span class="meta-key">shape:</span> <span class="meta-val">${data.raw_shape.join(' x ')}</span></span>

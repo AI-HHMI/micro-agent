@@ -489,8 +489,9 @@ class UnifiedLoader:
             repository=entry.repository,
             organelle=self.organelle,
             offset=offset,
-            # When voxel size is unknown, report (0,0,0) — don't pretend
-            resolution_nm=(0.0, 0.0, 0.0) if voxel_size_is_estimated else (self.resolution_nm or src_vox),
+            # When voxel size is unknown, still use target resolution for display
+            # consistency — the crop is crop_size raw voxels, no resampling applied.
+            resolution_nm=self.resolution_nm or src_vox,
             source_resolution_nm=src_vox,
             scale_used=scale,
             seg_status=seg_status,
