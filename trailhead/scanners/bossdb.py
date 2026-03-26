@@ -1,5 +1,10 @@
 """Scanner for BossDB (Brain Observatory Storage Service & Database).
 
+WARNING: Work in progress — not fully implemented yet. The scanner is slow
+due to the large number of API calls needed to enumerate collections,
+experiments, and channels, then verify S3 precomputed paths. Needs
+optimization (e.g. capping experiments per collection, caching results).
+
 BossDB is a public cloud archive for petascale volumetric neuroimaging data,
 hosted on AWS by JHU/APL. Data is stored in Neuroglancer Precomputed format
 on S3 (s3://bossdb-open-data/). No auth required for public datasets.
