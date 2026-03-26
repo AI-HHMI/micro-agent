@@ -34,31 +34,104 @@ pixi run view
 
 ## Python API
 
-### Load crops at a target resolution
+The `UnifiedLoader` is the single entry point for all data access. Any external tool or training pipeline can use it to get crops from any supported repository — no need for repository-specific code.
+
+### UnifiedLoader parameters
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `organelle` | `str` | `""` | Target organelle for segmentation (e.g., `"mito"`, `"er"`, `"neuron"`) |
+| `crop_size` | `(z, y, x)` | `(64, 64, 64)` | Output crop size in voxels |
+| `resolution_nm` | `(z, y, x)` or `None` | `None` | Target voxel size in nm. Auto-selects best scale and resamples. `None` = native resolution. |
+| `query` | `str` | `""` | Free-text search across dataset titles and IDs |
+| `organism` | `str` | `""` | Filter by organism (e.g., `"Homo sapiens"`, `"Drosophila melanogaster"`) |
+| `cell_type` | `str` | `""` | Filter by cell type (e.g., `"HeLa"`) |
+| `repositories` | `list[str]` or `None` | `None` | Restrict to specific repos (e.g., `["OpenOrganelle", "FlyEM"]`). `None` = all. |
+| `num_samples` | `int` | `1000` | Number of crops to yield |
+| `seed` | `int` or `None` | `None` | Random seed for reproducibility |
+| `require_segmentation` | `bool` | `False` | Only use datasets that have segmentation for the given organelle |
+| `balance_repositories` | `bool` | `False` | Sample equally across repositories (otherwise weighted by dataset count) |
+| `require_nonempty_raw` | `bool` | `False` | Skip crops where raw is all zeros |
+| `require_nonempty_seg` | `bool` | `False` | Skip crops where segmentation is absent or all zeros |
+
+### CropSample fields
+
+Each yielded `CropSample` contains everything needed to use the crop or trace it back to its source:
+
+| Field | Type | Description |
+|---|---|---|
+| `raw` | `ndarray (z,y,x) uint8` | Raw EM image crop, resampled to target resolution |
+| `segmentation` | `ndarray (z,y,x) uint32` or `None` | Segmentation labels (instance IDs, not binary masks) |
+| `dataset_id` | `str` | Dataset identifier (e.g., `"jrc_hela-2"`, `"minnie65"`) |
+| `repository` | `str` | Source repository name |
+| `organelle` | `str` | Organelle that was requested |
+| `offset` | `(z, y, x)` | Crop origin in source volume coordinates (at the scale that was read) |
+| `resolution_nm` | `(z, y, x)` | Output voxel size in nm |
+| `source_resolution_nm` | `(z, y, x)` | Native voxel size at the scale level that was read |
+| `scale_used` | `int` | Multiscale level that was read (0 = finest) |
+| `seg_status` | `str` | `"loaded"`, `"empty"`, `"failed: ..."`, or `"no_seg_available"` |
+| `raw_path` | `str` | Full path/URL to the raw volume |
+| `seg_path` | `str` | Full path/URL to the segmentation volume |
+
+### Examples
+
+**Random crops from all mito datasets at 8nm:**
 
 ```python
 from trailhead import UnifiedLoader
 
 loader = UnifiedLoader(
     organelle="mito",
-    crop_size=(64, 64, 64),       # output size in voxels
-    resolution_nm=(8.0, 8.0, 8.0), # target voxel size in nm
-    num_samples=100,
-    balance_repositories=True,     # equal sampling across repos
-    require_nonempty_raw=True,     # skip crops with all-zero raw
-    require_nonempty_seg=True,     # skip crops with no segmentation labels
+    crop_size=(64, 64, 64),
+    resolution_nm=(8.0, 8.0, 8.0),
+    require_nonempty_seg=True,
+    balance_repositories=True,
 )
 
-print(loader.summary())
-
 for sample in loader.prefetch_iter():
-    print(f"{sample.dataset_id:30s} [{sample.repository}]")
-    print(f"  resolution: {sample.resolution_nm} nm "
-          f"(source: {sample.source_resolution_nm} nm @ s{sample.scale_used})")
-    print(f"  raw: {sample.raw.shape}  seg: {sample.seg_status}")
-    print(f"  path: {sample.raw_path}")
-    # sample.raw       → np.ndarray (z,y,x) uint8
-    # sample.segmentation → np.ndarray (z,y,x) uint32 or None
+    # sample.raw: (64, 64, 64) uint8 at 8nm isotropic
+    # sample.segmentation: (64, 64, 64) uint32 instance labels
+    train(sample.raw, sample.segmentation)
+```
+
+**Crops from a specific dataset:**
+
+```python
+loader = UnifiedLoader(
+    query="minnie65",               # match by name
+    organelle="mito",
+    crop_size=(128, 128, 128),
+    resolution_nm=(16.0, 16.0, 16.0),
+)
+```
+
+**Crops from specific repositories only:**
+
+```python
+loader = UnifiedLoader(
+    organelle="er",
+    repositories=["OpenOrganelle", "MICrONS"],
+    crop_size=(64, 64, 64),
+    resolution_nm=(8.0, 8.0, 8.0),
+    require_segmentation=True,
+)
+```
+
+**Raw-only crops at native resolution (no resampling):**
+
+```python
+loader = UnifiedLoader(
+    organism="Drosophila melanogaster",
+    crop_size=(64, 64, 64),
+    # resolution_nm omitted → reads at native scale 0
+)
+```
+
+**Reproducible sampling:**
+
+```python
+loader = UnifiedLoader(organelle="mito", seed=42, num_samples=50)
+# Same seed + params → same sequence of crops
 ```
 
 ### Resolution-based scale selection
