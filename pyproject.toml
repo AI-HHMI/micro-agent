@@ -34,4 +34,5 @@ trailhead = { path = ".", editable = true }
 [tool.pixi.tasks]
 demo = "python -c \"from trailhead import Registry; r = Registry(); hits = r.search(organelle='mito'); print(f'Found {len(hits)} datasets with mito segmentations:'); [print(f'  {h.id} ({h.repository}) - {h.title}') for h in hits]\""
 view = "python -m trailhead.visualize"
+explore = "python -m trailhead.app"
 discover = "python -m trailhead.discover"

@@ -953,7 +953,7 @@ packages:
 - pypi: .
   name: trailhead
   version: 0.1.0
-  sha256: 6e4cea78caa6ea6f51babb0acbb3f186bb756105b9f0f7505745511bf920a22a
+  sha256: 0fff42fec6d6c87e0a8acd4b5469de9a9ac1ebef7d9b0d6d8191af3caa31930a
   requires_dist:
   - numpy
   - scipy
