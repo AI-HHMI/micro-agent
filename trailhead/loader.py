@@ -65,6 +65,7 @@ def _get_backend(repository: str) -> Backend:
         "HPA": BioImageBackend,
         "CellImageLibrary": BioImageBackend,
         "Zenodo": BioImageBackend,
+        "BossDB": MICrONSBackend,
     }
     backend_cls = backends.get(repository)
     if backend_cls is None:
@@ -323,7 +324,7 @@ class UnifiedLoader:
 
     # Repositories with fast metadata access (zarr/N5 with small metadata files)
     _FAST_REPOS = {"OpenOrganelle", "Google", "OpenNeuroData",
-                   "CellMap Publications", "MICrONS", "FlyEM"}
+                   "CellMap Publications", "MICrONS", "FlyEM", "BossDB"}
 
     def _pick_entry(self) -> DatasetEntry:
         """Pick a dataset. Prefers fast repos, then warmed, but allows any."""

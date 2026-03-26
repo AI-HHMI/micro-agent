@@ -91,14 +91,21 @@ class MICrONSBackend(Backend):
             spec["kvstore"] = f"https://storage.googleapis.com/{bucket}/{path}"
         return ts.open(spec, read=True).result()
 
+    @staticmethod
+    def _strip_precomputed(url: str) -> str:
+        """Strip 'precomputed://' prefix if present."""
+        if url.startswith("precomputed://"):
+            return url[len("precomputed://"):]
+        return url
+
     def _resolve_raw_url(self, entry: DatasetEntry) -> str:
         if entry.raw_path:
-            return entry.raw_path
+            return self._strip_precomputed(entry.raw_path)
         return "gs://iarpa_microns/minnie/minnie65/em"
 
     def _resolve_seg_url(self, entry: DatasetEntry, organelle: str) -> str:
         if organelle in entry.segmentation_paths:
-            return entry.segmentation_paths[organelle]
+            return self._strip_precomputed(entry.segmentation_paths[organelle])
         return "gs://iarpa_microns/minnie/minnie65/seg"
 
     def get_volume_shape(self, entry: DatasetEntry, scale: int = 0) -> tuple[int, ...]:
