@@ -366,9 +366,12 @@ def _prefetch_worker():
 
         while futures and not _prefetch_stop.is_set():
             done = set()
-            for f in as_completed(futures, timeout=1.0):
-                done.add(f)
-                break  # process one at a time to stay responsive to stop
+            try:
+                for f in as_completed(futures, timeout=1.0):
+                    done.add(f)
+                    break  # process one at a time to stay responsive to stop
+            except TimeoutError:
+                continue
 
             if not done:
                 continue
