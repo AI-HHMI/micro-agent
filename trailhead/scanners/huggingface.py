@@ -30,11 +30,19 @@ QUERIES = [
 
 # File extensions indicating microscopy image data
 IMAGE_EXTENSIONS = {
-    ".tif", ".tiff", ".ome.tif", ".ome.tiff",
-    ".czi", ".lif", ".nd2",
-    ".zarr", ".n5",
-    ".mrc", ".rec",
-    ".png", ".jpg",  # common for 2D datasets
+    ".tif",
+    ".tiff",
+    ".ome.tif",
+    ".ome.tiff",
+    ".czi",
+    ".lif",
+    ".nd2",
+    ".zarr",
+    ".n5",
+    ".mrc",
+    ".rec",
+    ".png",
+    ".jpg",  # common for 2D datasets
 }
 
 
@@ -79,35 +87,57 @@ class HuggingFaceScanner(BaseScanner):
                             desc_lower = description.lower()
                             tags_lower = " ".join(tags).lower()
                             combined = desc_lower + " " + tags_lower
-                            if any(kw in combined for kw in ["fluoresc", "confocal", "light sheet", "cell painting"]):
+                            if any(
+                                kw in combined
+                                for kw in [
+                                    "fluoresc",
+                                    "confocal",
+                                    "light sheet",
+                                    "cell painting",
+                                ]
+                            ):
                                 modality_class = "fluorescence"
-                            elif any(kw in combined for kw in ["electron microscopy", "em ", "sem ", "tem "]):
+                            elif any(
+                                kw in combined
+                                for kw in ["electron microscopy", "em ", "sem ", "tem "]
+                            ):
                                 modality_class = "em"
 
                         # Extract organism from tags
                         organism = ""
                         for tag in tags:
                             tag_lower = tag.lower()
-                            if any(org in tag_lower for org in [
-                                "homo sapiens", "human", "mus musculus", "mouse",
-                                "drosophila", "c. elegans", "zebrafish", "arabidopsis",
-                            ]):
+                            if any(
+                                org in tag_lower
+                                for org in [
+                                    "homo sapiens",
+                                    "human",
+                                    "mus musculus",
+                                    "mouse",
+                                    "drosophila",
+                                    "c. elegans",
+                                    "zebrafish",
+                                    "arabidopsis",
+                                ]
+                            ):
                                 organism = tag
                                 break
 
-                        results.append(DiscoveredDataset(
-                            id=f"hf_{ds_id.replace('/', '_')}",
-                            repository="HuggingFace",
-                            title=ds_id,
-                            organism=organism,
-                            imaging_modality=query,
-                            has_raw=True,
-                            data_format="huggingface-dataset",
-                            access_url=f"https://huggingface.co/datasets/{ds_id}",
-                            provenance=f"HuggingFace API search for '{query}'",
-                            modality_class=modality_class or "fluorescence",
-                            supports_random_access=False,
-                        ))
+                        results.append(
+                            DiscoveredDataset(
+                                id=f"hf_{ds_id.replace('/', '_')}",
+                                repository="HuggingFace",
+                                title=ds_id,
+                                organism=organism,
+                                imaging_modality=query,
+                                has_raw=True,
+                                data_format="huggingface-dataset",
+                                access_url=f"https://huggingface.co/datasets/{ds_id}",
+                                provenance=f"HuggingFace API search for '{query}'",
+                                modality_class=modality_class or "fluorescence",
+                                supports_random_access=False,
+                            )
+                        )
 
                 except Exception as e:
                     print(f"  [{self.name}] API error for '{query}': {e}")
