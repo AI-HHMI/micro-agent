@@ -210,7 +210,7 @@ class UnifiedLoader:
 
         # Pre-warm slow backends (bioio/fluorescence) in parallel threads so
         # first _fetch_one() doesn't block on TIFF header downloads from S3.
-        self._prewarm(max_datasets=6)
+        self._prewarm(max_datasets=15)
 
     def _prewarm(self, max_datasets: int = 6) -> None:
         """Pre-open slow datasets (bioio/fluorescence) in background threads.
@@ -326,7 +326,7 @@ class UnifiedLoader:
                    "CellMap Publications", "MICrONS", "FlyEM"}
 
     def _pick_entry(self) -> DatasetEntry:
-        """Pick a dataset. Prefers fast repos and already-warmed datasets."""
+        """Pick a dataset. Prefers fast repos, then warmed, but allows any."""
         fast = [r for r in self._by_repo if r in self._FAST_REPOS]
         slow = [r for r in self._by_repo if r not in self._FAST_REPOS]
 
@@ -336,13 +336,15 @@ class UnifiedLoader:
                     repo = self._rng.choice(slow)
                 else:
                     repo = self._rng.choice(fast)
+                return self._rng.choice(self._by_repo[repo])
             else:
-                # No fast repos (fluorescence-only mode). Prefer warmed entries.
+                # No fast repos (fluorescence-only mode).
+                # 70% warmed (fast), 30% any (allows discovering new datasets)
                 warmed = [e for e in self._datasets if e.id in self._scale_info]
-                if warmed:
+                if warmed and self._rng.random() < 0.7:
                     return self._rng.choice(warmed)
                 repo = self._rng.choice(list(self._by_repo.keys()))
-            return self._rng.choice(self._by_repo[repo])
+                return self._rng.choice(self._by_repo[repo])
         else:
             if fast:
                 fast_entries = [e for e in self._datasets if e.repository in self._FAST_REPOS]
@@ -352,9 +354,9 @@ class UnifiedLoader:
                 if fast_entries:
                     return self._rng.choice(fast_entries)
             else:
-                # No fast repos. Prefer warmed entries.
+                # No fast repos. Prefer warmed but allow any.
                 warmed = [e for e in self._datasets if e.id in self._scale_info]
-                if warmed:
+                if warmed and self._rng.random() < 0.7:
                     return self._rng.choice(warmed)
             return self._rng.choice(self._datasets)
 
