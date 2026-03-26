@@ -67,8 +67,9 @@ The loader automatically picks the best multiscale level for your target resolut
 
 - Reads voxel size metadata directly from volume files (neuroglancer precomputed `info` JSON, N5 `attributes.json`, zarr `.zattrs`)
 - Picks the coarsest scale still finer than or equal to the target in all dimensions
-- Resamples with `scipy.ndimage.zoom` (bilinear for raw, nearest-neighbor for segmentation)
-- Handles anisotropic data (e.g., MICrONS minnie65 at 8x8x40 nm gets z resampled 5x to produce isotropic output)
+- Computes per-axis zoom factors (`source_voxel / target_voxel`) and works backwards to determine how many source voxels to read: `read_shape = ceil(crop_size / zoom_factors)`. For example, requesting 64³ at 8nm from a 16nm source (zoom=2.0) reads 32³ source voxels, then resamples up to 64³.
+- Resamples with `scipy.ndimage.zoom` (bilinear for raw, nearest-neighbor for segmentation) and trims/pads to exact `crop_size`
+- Handles anisotropic data (e.g., MICrONS minnie65 at 8x8x40 nm gets per-axis zoom factors to produce isotropic output)
 
 ### Search the registry
 
