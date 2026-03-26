@@ -8,7 +8,6 @@ prefix is derived from the screen name (e.g., idr0001-graml-sysgro/screenA
 
 from __future__ import annotations
 
-import asyncio
 import re
 
 import httpx
@@ -45,53 +44,46 @@ class IDRScanner(BaseScanner):
         results: list[DiscoveredDataset] = []
 
         async with httpx.AsyncClient(timeout=30.0) as client:
-            # Scan screens — resolve plate-level zarr paths in parallel
+            # Scan screens — resolve plate-level zarr paths
             try:
                 resp = await client.get(
                     f"{IDR_API}/screens/",
                     headers={"Accept": "application/json"},
                 )
                 if resp.status_code == 200:
-                    screens = resp.json().get("data", [])[:limit]
+                    screens = resp.json().get("data", [])
+                    for screen in screens[:limit]:
+                        screen_id = screen.get("@id") or screen.get("id", "")
+                        name = screen.get("Name") or screen.get("name", "")
+                        if not screen_id:
+                            continue
 
-                    # Resolve all screen zarr paths concurrently
-                    sem = asyncio.Semaphore(10)
+                        desc = (screen.get("Description") or screen.get("description", "")).lower()
+                        is_fluor = any(
+                            kw in desc or kw in name.lower()
+                            for kw in ["fluorescence", "confocal", "light sheet",
+                                        "widefield", "gfp", "dapi", "fitc"]
+                        )
 
-                    async def _resolve(screen: dict) -> DiscoveredDataset | None:
-                        async with sem:
-                            screen_id = screen.get("@id") or screen.get("id", "")
-                            name = screen.get("Name") or screen.get("name", "")
-                            if not screen_id:
-                                return None
-
-                            desc = (screen.get("Description") or screen.get("description", "")).lower()
-                            is_fluor = any(
-                                kw in desc or kw in name.lower()
-                                for kw in ["fluorescence", "confocal", "light sheet",
-                                            "widefield", "gfp", "dapi", "fitc"]
-                            )
-
-                            raw_path = await self._resolve_screen_zarr(client, screen_id, name)
-                            return DiscoveredDataset(
-                                id=f"idr_screen_{screen_id}",
-                                repository="IDR",
-                                title=name[:120] if name else str(screen_id),
-                                data_format="ome-zarr",
-                                imaging_modality="fluorescence" if is_fluor else "OME-Zarr",
-                                access_url=(
-                                    f"https://idr.openmicroscopy.org/webclient/"
-                                    f"?show=screen-{screen_id}"
-                                ),
-                                raw_path=raw_path or "",
-                                provenance="IDR screens API" + (
-                                    " with resolved plate zarr" if raw_path else " (catalog only)"
-                                ),
-                                modality_class="fluorescence" if is_fluor else "",
-                                supports_random_access=bool(raw_path),
-                            )
-
-                    resolved = await asyncio.gather(*[_resolve(s) for s in screens])
-                    results.extend(r for r in resolved if r is not None)
+                        # Resolve plate-level zarr path
+                        raw_path = await self._resolve_screen_zarr(client, screen_id, name)
+                        results.append(DiscoveredDataset(
+                            id=f"idr_screen_{screen_id}",
+                            repository="IDR",
+                            title=name[:120] if name else str(screen_id),
+                            data_format="ome-zarr",
+                            imaging_modality="fluorescence" if is_fluor else "OME-Zarr",
+                            access_url=(
+                                f"https://idr.openmicroscopy.org/webclient/"
+                                f"?show=screen-{screen_id}"
+                            ),
+                            raw_path=raw_path or "",
+                            provenance="IDR screens API" + (
+                                " with resolved plate zarr" if raw_path else " (catalog only)"
+                            ),
+                            modality_class="fluorescence" if is_fluor else "",
+                            supports_random_access=bool(raw_path),
+                        ))
             except Exception as e:
                 print(f"  [{self.name}] Screens API error: {e}")
 
