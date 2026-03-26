@@ -60,7 +60,16 @@ async def _run_all_async(
     if scanners is None:
         scanners = [cls() for cls in ALL_SCANNERS]
 
-    tasks = [scanner.scan(limit=limit) for scanner in scanners]
+    per_scanner_timeout = 60  # seconds
+
+    async def _run_with_timeout(scanner: BaseScanner) -> list[DiscoveredDataset]:
+        try:
+            return await asyncio.wait_for(scanner.scan(limit=limit), timeout=per_scanner_timeout)
+        except asyncio.TimeoutError:
+            print(f"  [{scanner.name}] Timed out after {per_scanner_timeout}s")
+            return []
+
+    tasks = [_run_with_timeout(scanner) for scanner in scanners]
     all_results = await asyncio.gather(*tasks, return_exceptions=True)
 
     combined: list[DiscoveredDataset] = []
