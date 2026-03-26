@@ -31,7 +31,7 @@ class CropSample:
     """A single training sample."""
 
     raw: NDArray[np.uint8]
-    segmentation: NDArray[np.uint8] | None
+    segmentation: NDArray | None
     dataset_id: str
     repository: str
     organelle: str
@@ -111,6 +111,8 @@ class UnifiedLoader:
         registry: Registry | None = None,
         require_segmentation: bool = False,
         balance_repositories: bool = False,
+        require_nonempty_raw: bool = False,
+        require_nonempty_seg: bool = False,
     ) -> None:
         self.organelle = organelle
         self.crop_size = crop_size
@@ -118,6 +120,8 @@ class UnifiedLoader:
         self.num_samples = num_samples
         self._require_segmentation = require_segmentation
         self._balance_repositories = balance_repositories
+        self._require_nonempty_raw = require_nonempty_raw
+        self._require_nonempty_seg = require_nonempty_seg
 
         self._rng = random.Random(seed)
         self._registry = registry or Registry()
@@ -251,11 +255,15 @@ class UnifiedLoader:
         if all(abs(z - 1.0) < 1e-6 for z in zoom_factors):
             return data  # no resampling needed
 
-        resampled = zoom(data.astype(np.float32), zoom_factors, order=order)
+        if order > 0:
+            resampled = zoom(data.astype(np.float32), zoom_factors, order=order)
+            resampled = resampled.astype(data.dtype)
+        else:
+            resampled = zoom(data, zoom_factors, order=0)
         # Trim or pad to exact crop_size
         out = np.zeros(self.crop_size, dtype=data.dtype)
         slices = tuple(slice(0, min(s, c)) for s, c in zip(resampled.shape, self.crop_size))
-        out[slices] = resampled[slices].astype(data.dtype)
+        out[slices] = resampled[slices]
         return out
 
     def _fetch_one(self) -> CropSample | None:
@@ -279,6 +287,10 @@ class UnifiedLoader:
         # Resample to target resolution
         raw = self._resample(raw, zoom_factors, order=1)
 
+        # Check nonempty raw requirement
+        if self._require_nonempty_raw and not raw.any():
+            return None
+
         seg = None
         seg_status = "no_seg_available"
         if entry.has_segmentation and self.organelle in entry.segmentation_paths:
@@ -290,6 +302,11 @@ class UnifiedLoader:
                 seg_status = "loaded" if seg.any() else "empty"
             except Exception as e:
                 seg_status = f"failed: {e}"
+
+        # Check nonempty seg requirement
+        if self._require_nonempty_seg:
+            if seg is None or not seg.any():
+                return None
 
         # Resolve paths for display
         raw_path = ""
