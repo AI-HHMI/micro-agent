@@ -106,22 +106,6 @@ class BossDBScanner(BaseScanner):
                         f"/{collection}/{exp_name}/{raw_channel}"
                     )
 
-                    # Read voxel size from info file if possible
-                    voxel_size = []
-                    try:
-                        import json
-                        info_data = json.loads(
-                            fs.cat_file(f"{BOSSDB_S3_BUCKET}/{collection}/{exp_name}/{raw_channel}/info")
-                        )
-                        scales = info_data.get("scales", [])
-                        if scales:
-                            res = scales[0].get("resolution", [])
-                            if len(res) >= 3:
-                                # Precomputed resolution is in nm (x, y, z)
-                                voxel_size = [float(res[2]), float(res[1]), float(res[0])]
-                    except Exception:
-                        pass
-
                     seg_paths = {}
                     if seg_channel:
                         seg_url = (
@@ -143,7 +127,6 @@ class BossDBScanner(BaseScanner):
                         access_url=precomputed_url,
                         raw_path=precomputed_url,
                         segmentation_paths=seg_paths,
-                        voxel_size_nm=voxel_size,
                         provenance="BossDB S3 bucket scan",
                         modality_class="em",
                         supports_random_access=True,
