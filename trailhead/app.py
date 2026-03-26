@@ -716,6 +716,10 @@ HTML_PAGE = r"""<!DOCTYPE html>
       <div class="triple-col"><label>y</label><input type="number" id="crop-y" value="64" min="8" step="8"></div>
       <div class="triple-col"><label>x</label><input type="number" id="crop-x" value="64" min="8" step="8"></div>
     </div>
+    <div class="checkbox-row" style="margin-top:6px">
+      <input type="checkbox" id="crop-iso-lock" checked>
+      <span>Isotropic lock</span>
+    </div>
   </div>
 
   <!-- Options -->
@@ -845,6 +849,26 @@ document.getElementById('res-x').addEventListener('input', function() {
   if (document.getElementById('iso-lock').checked) {
     document.getElementById('res-z').value = this.value;
     document.getElementById('res-y').value = this.value;
+  }
+});
+
+// --- Crop size isotropic lock ---
+document.getElementById('crop-z').addEventListener('input', function() {
+  if (document.getElementById('crop-iso-lock').checked) {
+    document.getElementById('crop-y').value = this.value;
+    document.getElementById('crop-x').value = this.value;
+  }
+});
+document.getElementById('crop-y').addEventListener('input', function() {
+  if (document.getElementById('crop-iso-lock').checked) {
+    document.getElementById('crop-z').value = this.value;
+    document.getElementById('crop-x').value = this.value;
+  }
+});
+document.getElementById('crop-x').addEventListener('input', function() {
+  if (document.getElementById('crop-iso-lock').checked) {
+    document.getElementById('crop-z').value = this.value;
+    document.getElementById('crop-y').value = this.value;
   }
 });
 
