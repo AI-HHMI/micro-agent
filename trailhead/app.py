@@ -341,6 +341,7 @@ def _prefetch_worker():
     Uses multiple threads so a slow dataset (e.g. EMPIAR ~60s) doesn't
     block the queue from being filled by faster sources.
     """
+    import threading
     import time
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
