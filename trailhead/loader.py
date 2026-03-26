@@ -171,6 +171,10 @@ class UnifiedLoader:
                 or not e.organelles
             ]
 
+        # Exclude repos that are too slow/unreliable for interactive cropping
+        _EXCLUDED_REPOS = {"EMPIAR"}  # FTP per-slice downloads, often incomplete files
+        self._datasets = [e for e in self._datasets if e.repository not in _EXCLUDED_REPOS]
+
         # Exclude datasets that don't support random access
         skipped = [e for e in self._datasets if not e.supports_random_access]
         self._datasets = [e for e in self._datasets if e.supports_random_access]
