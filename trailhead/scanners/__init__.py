@@ -60,15 +60,23 @@ async def _run_all_async(
     if scanners is None:
         scanners = [cls() for cls in ALL_SCANNERS]
 
-    tasks = [scanner.scan(limit=limit) for scanner in scanners]
-    all_results = await asyncio.gather(*tasks, return_exceptions=True)
+    import time
+
+    async def _timed_scan(scanner: BaseScanner) -> list[DiscoveredDataset]:
+        t0 = time.time()
+        try:
+            result = await scanner.scan(limit=limit)
+            print(f"  [{scanner.name}] Found {len(result)} datasets ({time.time() - t0:.1f}s)")
+            return result
+        except Exception as e:
+            print(f"  [{scanner.name}] Scanner failed: {e} ({time.time() - t0:.1f}s)")
+            return []
+
+    tasks = [_timed_scan(scanner) for scanner in scanners]
+    all_results = await asyncio.gather(*tasks)
 
     combined: list[DiscoveredDataset] = []
-    for scanner, result in zip(scanners, all_results):
-        if isinstance(result, Exception):
-            print(f"  [{scanner.name}] Scanner failed: {result}")
-            continue
-        print(f"  [{scanner.name}] Found {len(result)} datasets")
+    for result in all_results:
         combined.extend(result)
 
     if validate:
