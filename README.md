@@ -29,6 +29,9 @@ Cross-repository microscopy training data discovery and loading. Trailhead provi
 | **Human Protein Atlas** | Fluorescence | TIFF | Catalog only | HPA subcellular API |
 | **Cell Image Library** | Fluorescence / EM | TIFF | Catalog only | CIL JSON API |
 | **Zenodo** | Fluorescence / EM | Various | Catalog only | Zenodo REST API |
+| **HuggingFace** | Fluorescence / EM | Various | Catalog only | HuggingFace Hub API |
+| **OpenAlex** | Fluorescence / EM | Various | Catalog only | OpenAlex literature API |
+| **BossDB** | EM | Neuroglancer Precomputed on S3 | Random-access crops (WIP) | BossDB REST API + S3 verification |
 
 ## Quick start
 
@@ -226,7 +229,7 @@ The server binds to `0.0.0.0` so it's accessible from other machines on the netw
 
 ## Dataset discovery
 
-`pixi run discover` scans 8 public repositories in parallel and outputs a `discovered_datasets.json` file. The Registry auto-loads this file on startup, making discovered datasets immediately available to the loader and web explorer.
+`pixi run discover` scans 11 public repositories in parallel and outputs a `discovered_datasets.json` file. The Registry auto-loads this file on startup, making discovered datasets immediately available to the loader and web explorer.
 
 ### Architecture
 
@@ -235,7 +238,7 @@ Discovery uses a scanner module system (`trailhead/scanners/`). Each scanner imp
 - `scan(limit)` — async method that queries the source API and returns `DiscoveredDataset` entries
 - `validate_access(dataset)` — async method that checks whether the data is actually reachable
 
-All 8 scanners run concurrently via `asyncio.gather()`. The total discovery time is bounded by the slowest scanner, not the sum.
+All scanners run concurrently via `asyncio.gather()` with a 60-second per-scanner timeout. The total discovery time is bounded by the slowest scanner, not the sum.
 
 ### Scanners in detail
 
@@ -265,6 +268,12 @@ Only screens with verified plate zarrs on EBI S3 get `supports_random_access=Tru
 **Cell Image Library** (`scanners/cell_image_lib.py`) — Searches CIL JSON API with fluorescence and EM queries. Uses `verify=False` for SSL issues. Catalog-only.
 
 **Zenodo** (`scanners/zenodo.py`) — Searches Zenodo REST API for microscopy dataset records. Detects data formats from file extensions. Uses `follow_redirects=True` (API returns 301). Catalog-only.
+
+**HuggingFace** (`scanners/huggingface.py`) — Searches HuggingFace Hub API for microscopy-related datasets. Catalog-only.
+
+**OpenAlex** (`scanners/openalex.py`) — Searches OpenAlex literature API for papers about microscopy datasets. Catalog-only.
+
+**BossDB** (`scanners/bossdb.py`) — **Work in progress.** Scans BossDB via REST API (`api.bossdb.io`) to list collections, experiments, and channels, then verifies which have Neuroglancer Precomputed data on S3 (`s3://bossdb-open-data/`). Currently slow due to the large number of API calls needed. Datasets with verified S3 paths get `supports_random_access=True` and are readable via `MICrONSBackend`.
 
 ### EM vs fluorescence classification
 
@@ -360,6 +369,9 @@ trailhead/
     hpa.py                 # Human Protein Atlas subcellular API
     cell_image_lib.py      # Cell Image Library JSON API
     zenodo.py              # Zenodo REST API search
+    huggingface.py         # HuggingFace Hub API search
+    openalex.py            # OpenAlex literature API search
+    bossdb.py              # BossDB REST API + S3 verification (WIP)
   agent/
     __init__.py            # Exports DiscoveryAgent
     llm.py                 # LLM abstraction (Anthropic + OpenAI-compatible)
