@@ -72,8 +72,29 @@ async def _run_all_async(
             print(f"  [{scanner.name}] Scanner failed: {e} ({time.time() - t0:.1f}s)")
             return []
 
-    tasks = [_timed_scan(scanner) for scanner in scanners]
-    all_results = await asyncio.gather(*tasks)
+    async def _heartbeat(start: float, scanner_names: list[str]) -> None:
+        """Print elapsed time every 60s so you can tell it's still running."""
+        while True:
+            await asyncio.sleep(60)
+            elapsed = time.time() - start
+            pending = [n for n in scanner_names if n not in completed]
+            if pending:
+                print(f"  ... {elapsed:.0f}s elapsed, still waiting on: {', '.join(pending)}")
+
+    completed: set[str] = set()
+
+    async def _timed_scan_tracked(scanner: BaseScanner) -> list[DiscoveredDataset]:
+        result = await _timed_scan(scanner)
+        completed.add(scanner.name)
+        return result
+
+    t_start = time.time()
+    heartbeat_task = asyncio.create_task(_heartbeat(t_start, [s.name for s in scanners]))
+    try:
+        tasks = [_timed_scan_tracked(scanner) for scanner in scanners]
+        all_results = await asyncio.gather(*tasks)
+    finally:
+        heartbeat_task.cancel()
 
     combined: list[DiscoveredDataset] = []
     for result in all_results:
