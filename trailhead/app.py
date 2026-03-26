@@ -554,9 +554,9 @@ HTML_PAGE = r"""<!DOCTYPE html>
   <div class="ctrl-section">
     <div class="ctrl-label">Resolution (nm)</div>
     <div class="triple-input">
-      <div class="triple-col"><label>z</label><input type="number" id="res-z" value="8" min="1" step="1"></div>
-      <div class="triple-col"><label>y</label><input type="number" id="res-y" value="8" min="1" step="1"></div>
-      <div class="triple-col"><label>x</label><input type="number" id="res-x" value="8" min="1" step="1"></div>
+      <div class="triple-col"><label>z</label><input type="number" id="res-z" value="64" min="1" step="1"></div>
+      <div class="triple-col"><label>y</label><input type="number" id="res-y" value="64" min="1" step="1"></div>
+      <div class="triple-col"><label>x</label><input type="number" id="res-x" value="64" min="1" step="1"></div>
     </div>
     <div class="checkbox-row" style="margin-top:6px">
       <input type="checkbox" id="iso-lock" checked>
