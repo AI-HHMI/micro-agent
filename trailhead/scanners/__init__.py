@@ -64,9 +64,19 @@ async def _run_all_async(
 
     async def _run_with_timeout(scanner: BaseScanner) -> list[DiscoveredDataset]:
         try:
-            return await asyncio.wait_for(scanner.scan(limit=limit), timeout=per_scanner_timeout)
+            # Run in a thread so blocking S3/HTTP calls can be interrupted
+            loop = asyncio.get_event_loop()
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                future = loop.run_in_executor(
+                    pool, lambda: asyncio.run(scanner.scan(limit=limit))
+                )
+                return await asyncio.wait_for(future, timeout=per_scanner_timeout)
         except asyncio.TimeoutError:
             print(f"  [{scanner.name}] Timed out after {per_scanner_timeout}s")
+            return []
+        except Exception as e:
+            print(f"  [{scanner.name}] Error: {e}")
             return []
 
     tasks = [_run_with_timeout(scanner) for scanner in scanners]
