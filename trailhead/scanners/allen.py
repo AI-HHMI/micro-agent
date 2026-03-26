@@ -16,6 +16,17 @@ from trailhead.scanners.base import BaseScanner
 ALLEN_BRAIN_API = "https://api.brain-map.org/api/v2/data/query.json"
 ALLEN_BUCKET = "allencell"
 
+# Subdirectory names in Allen Cell packages that typically contain raw 3D TIFFs
+_RAW_SUBDIRS = [
+    "crop_raw", "cell_images_3d", "crop_seg", "crop_raw_channels",
+]
+
+_TIFF_SUFFIXES = (".ome.tif", ".ome.tiff", ".tiff", ".tif")
+
+
+def _is_tiff(path: str) -> bool:
+    return path.lower().endswith(_TIFF_SUFFIXES)
+
 
 class AllenScanner(BaseScanner):
     """Scan Allen Institute data portals for microscopy datasets."""
@@ -39,18 +50,23 @@ class AllenScanner(BaseScanner):
         results: list[DiscoveredDataset],
         limit: int,
     ) -> None:
-        """Scan Allen Cell Explorer S3 bucket for 3D fluorescence datasets."""
+        """Scan Allen Cell Explorer S3 bucket for 3D fluorescence datasets.
+
+        The bucket structure is typically:
+            allencell/aics/{dataset_name}/{subfolder}/{file}.ome.tif
+        where subfolder is e.g. crop_raw, cell_images_3d, etc.
+        We use fs.glob() to search up to 4 levels deep for TIFFs.
+        """
         try:
             fs = s3fs.S3FileSystem(anon=True)
 
-            # List top-level dataset packages in the allencell bucket
+            # List top-level dataset packages
             try:
                 top_dirs = fs.ls(f"{ALLEN_BUCKET}/aics/")
             except Exception:
                 top_dirs = []
 
             if not top_dirs:
-                # Fallback: try listing the bucket root
                 try:
                     top_dirs = fs.ls(ALLEN_BUCKET)
                     top_dirs = [d for d in top_dirs if not d.endswith((".md", ".txt", ".json"))]
@@ -58,37 +74,22 @@ class AllenScanner(BaseScanner):
                     print(f"  [{self.name}] S3 bucket listing failed: {e}")
                     return
 
-            for dir_path in sorted(top_dirs)[:limit]:
+            resolved = 0
+            for dir_path in sorted(top_dirs):
+                if resolved >= limit:
+                    break
                 pkg_name = dir_path.split("/")[-1]
                 if not pkg_name or pkg_name.startswith("."):
                     continue
 
-                # Look for OME-TIFF files in this package
                 ome_tiff_path = None
                 try:
-                    # Check for common file patterns
-                    contents = fs.ls(dir_path)
-                    for item in contents[:20]:
-                        name = item.split("/")[-1].lower()
-                        if name.endswith((".ome.tif", ".ome.tiff", ".tiff", ".tif")):
-                            ome_tiff_path = item
-                            break
-                    # If no direct TIFFs, look one level deeper
-                    if not ome_tiff_path:
-                        for subdir in contents[:5]:
-                            if fs.isdir(subdir):
-                                sub_contents = fs.ls(subdir)
-                                for item in sub_contents[:10]:
-                                    name = item.split("/")[-1].lower()
-                                    if name.endswith((".ome.tif", ".ome.tiff", ".tiff", ".tif")):
-                                        ome_tiff_path = item
-                                        break
-                                if ome_tiff_path:
-                                    break
+                    ome_tiff_path = self._find_tiff(fs, dir_path)
                 except Exception:
                     pass
 
                 if ome_tiff_path:
+                    resolved += 1
                     results.append(DiscoveredDataset(
                         id=f"allen_cell_{pkg_name}",
                         repository="Allen",
@@ -105,23 +106,54 @@ class AllenScanner(BaseScanner):
                         channel_names=["Brightfield", "DNA", "Cell membrane", "Structure"],
                         supports_random_access=True,
                     ))
-                else:
-                    results.append(DiscoveredDataset(
-                        id=f"allen_cell_{pkg_name}",
-                        repository="Allen",
-                        title=f"Allen Cell — {pkg_name}",
-                        organism="Homo sapiens",
-                        cell_type="hiPSC-derived",
-                        imaging_modality="spinning disk confocal",
-                        data_format="ome-tiff",
-                        access_url=f"s3://{ALLEN_BUCKET}/{dir_path}/",
-                        provenance="Allen Cell S3 bucket (no TIFF resolved)",
-                        modality_class="fluorescence",
-                        supports_random_access=False,
-                    ))
+                # Skip unresolved packages — don't add catalog-only entries
+                # that can't be loaded
+
+            print(f"  [{self.name}] Resolved {resolved}/{len(top_dirs)} Cell Explorer packages")
 
         except Exception as e:
             print(f"  [{self.name}] Cell Explorer error: {e}")
+
+    @staticmethod
+    def _find_tiff(fs: "s3fs.S3FileSystem", dir_path: str) -> str | None:
+        """Find the first TIFF in a dataset package, searching up to 3 levels deep.
+
+        Strategy:
+        1. Check known raw-data subdirectory names first (fast path)
+        2. Fall back to glob for any TIFF up to 3 levels deep
+        """
+        # Fast path: check known subdirectory names that contain raw 3D images
+        for subdir in _RAW_SUBDIRS:
+            sub_path = f"{dir_path}/{subdir}"
+            try:
+                if fs.exists(sub_path):
+                    files = fs.ls(sub_path)
+                    for f in files:
+                        if _is_tiff(f):
+                            return f
+            except Exception:
+                continue
+
+        # Check for TIFFs directly in the package directory
+        try:
+            contents = fs.ls(dir_path)
+            for item in contents:
+                if not fs.isdir(item) and _is_tiff(item):
+                    return item
+        except Exception:
+            pass
+
+        # Broad search: glob for any TIFF up to 3 levels deep
+        for pattern in [f"{dir_path}/*/*.tif", f"{dir_path}/*/*/*.tif",
+                        f"{dir_path}/*/*.ome.tif", f"{dir_path}/*/*/*.ome.tif"]:
+            try:
+                matches = fs.glob(pattern)
+                if matches:
+                    return matches[0]
+            except Exception:
+                continue
+
+        return None
 
     async def _scan_brain_observatory(
         self,
