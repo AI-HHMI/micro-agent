@@ -153,6 +153,7 @@ _IDR_ENTRIES = [
         has_segmentation=False,
         has_raw=True,
         data_format="ome-zarr",
+        supports_random_access=False,  # EBI S3 not reachable from Janelia
     ),
 ]
 
@@ -247,7 +248,7 @@ _GCS_ENTRIES = [
         raw_path="gs://flyem-male-cns/em/em-clahe-jpeg",
         segmentation_paths={"neuron": "gs://flyem-male-cns/v0.9/segmentation"},
     ),
-    # Janelia FlyEM — Optic Lobe
+    # Janelia FlyEM — Optic Lobe (not publicly accessible yet)
     DatasetEntry(
         id="flyem_optic_lobe",
         repository="FlyEM",
@@ -261,6 +262,7 @@ _GCS_ENTRIES = [
         data_format="neuroglancer_precomputed",
         raw_path="gs://flyem-optic-lobe/em/em-clahe-jpeg",
         segmentation_paths={"neuron": "gs://flyem-optic-lobe/v1.1/segmentation"},
+        supports_random_access=False,
     ),
     # FlyWire (FAFB with Seung Lab segmentation)
     DatasetEntry(
@@ -357,10 +359,10 @@ _CELLMAP_PUBLICATIONS_ENTRIES = [
         has_segmentation=True,
         has_raw=True,
         data_format="n5",
-        access_url="s3://janelia-cosem-publications/heinrich-2021a/",
-        raw_path="jrc_hela-2/jrc_hela-2.n5/volumes/raw",
+        access_url="s3://janelia-cosem-publications/",
+        raw_path="heinrich-2021a/jrc_hela-2/jrc_hela-2.n5/volumes/raw",
         segmentation_paths={
-            org: f"jrc_hela-2/jrc_hela-2.n5/volumes/labels/{org}" for org in
+            org: f"heinrich-2021a/jrc_hela-2/jrc_hela-2.n5/volumes/labels/{org}" for org in
             ["mito", "er", "nucleus", "golgi", "vesicle", "pm", "endo"]
         },
     ),

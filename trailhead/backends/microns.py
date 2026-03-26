@@ -72,9 +72,14 @@ class MICrONSBackend(Backend):
             "kvstore": url,
             "scale_index": scale,
         }
-        # Set anonymous credentials for S3-backed datasets to suppress IMDS noise
+        # Set anonymous/public access to suppress credential noise
         if url.startswith("s3://"):
             spec["context"] = {"aws_credentials": {"type": "anonymous"}}
+        elif url.startswith("gs://"):
+            # Use HTTPS URL for public GCS buckets — avoids credential lookup entirely
+            bucket = url[5:].split("/")[0]
+            path = "/".join(url[5:].split("/")[1:])
+            spec["kvstore"] = f"https://storage.googleapis.com/{bucket}/{path}"
         return ts.open(spec, read=True).result()
 
     def _resolve_raw_url(self, entry: DatasetEntry) -> str:
@@ -133,9 +138,9 @@ class MICrONSBackend(Backend):
         offset: tuple[int, int, int],
         shape: tuple[int, int, int],
         scale: int = 0,
-    ) -> NDArray[np.uint8]:
+    ) -> NDArray[np.uint32]:
         seg_url = self._resolve_seg_url(entry, organelle)
         arr = self._open_array(seg_url, scale)
         data = self._read_crop(arr, offset, shape)
-        # Convert uint64 instance labels to uint8 binary mask
-        return np.asarray(data > 0, dtype=np.uint8) * 255
+        # Keep instance labels (truncate uint64 → uint32 for neuroglancer)
+        return np.asarray(data, dtype=np.uint32)
