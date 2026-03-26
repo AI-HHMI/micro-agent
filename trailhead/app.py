@@ -43,7 +43,7 @@ _loader: UnifiedLoader | None = None
 _loader_iter = None
 _current_sample: CropSample | None = None
 import queue as _queue_mod
-_prefetch_q: _queue_mod.Queue[CropSample | None] = _queue_mod.Queue(maxsize=5)
+_prefetch_q: _queue_mod.Queue[CropSample | None] = _queue_mod.Queue(maxsize=10)
 _prefetch_stop = __import__("threading").Event()
 _registry = Registry()
 _ng_port = 9001
@@ -336,28 +336,60 @@ def _get_next_from_queue():
 
 
 def _prefetch_worker():
-    """Single dedicated thread that fills the prefetch queue.
+    """Fill the prefetch queue using a thread pool for parallel fetches.
 
-    Only this thread calls next(_loader_iter), so no lock needed.
+    Uses multiple threads so a slow dataset (e.g. EMPIAR ~60s) doesn't
+    block the queue from being filled by faster sources.
     """
     import time
-    log.info("Prefetch worker started")
-    while not _prefetch_stop.is_set():
-        t0 = time.time()
-        try:
-            sample = next(_loader_iter)
-        except StopIteration:
-            _prefetch_q.put(None)  # signal end
-            log.info("Prefetch worker: no more samples")
-            return
+    from concurrent.futures import ThreadPoolExecutor, as_completed
 
-        if sample is not None:
-            elapsed = time.time() - t0
-            _prefetch_q.put(sample)  # blocks if queue is full (5 items)
-            log.info("Prefetched: %s (%s) in %.1fs [queue ~%d]",
-                     sample.dataset_id, sample.repository, elapsed, _prefetch_q.qsize())
-        else:
-            log.info("Prefetch: _fetch_one returned None (retry) in %.1fs", time.time() - t0)
+    NUM_WORKERS = 3
+    log.info("Prefetch worker started (%d parallel fetchers)", NUM_WORKERS)
+
+    _iter_lock = threading.Lock()
+
+    def _fetch_next():
+        with _iter_lock:
+            try:
+                return next(_loader_iter)
+            except StopIteration:
+                return "STOP"
+
+    with ThreadPoolExecutor(max_workers=NUM_WORKERS) as pool:
+        # Keep NUM_WORKERS fetches in-flight at all times
+        futures = set()
+        for _ in range(NUM_WORKERS):
+            if not _prefetch_stop.is_set():
+                futures.add(pool.submit(_fetch_next))
+
+        while futures and not _prefetch_stop.is_set():
+            done = set()
+            for f in as_completed(futures, timeout=1.0):
+                done.add(f)
+                break  # process one at a time to stay responsive to stop
+
+            if not done:
+                continue
+
+            for f in done:
+                futures.discard(f)
+                result = f.result()
+                if result == "STOP":
+                    _prefetch_q.put(None)
+                    log.info("Prefetch worker: no more samples")
+                    # Cancel remaining futures
+                    _prefetch_stop.set()
+                    return
+                if result is not None:
+                    _prefetch_q.put(result)  # blocks if queue full
+                    log.info("Prefetched: %s (%s) [queue ~%d]",
+                             result.dataset_id, result.repository, _prefetch_q.qsize())
+
+                # Submit a replacement fetch
+                if not _prefetch_stop.is_set():
+                    futures.add(pool.submit(_fetch_next))
+
     log.info("Prefetch worker stopped")
 
 
