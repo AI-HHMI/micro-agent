@@ -1,0 +1,464 @@
+[
+  {
+    "id": "aic_desmosome-1",
+    "title": "Desmosome #1",
+    "organism": "Homo sapiens",
+    "cell_type": "epithelial",
+    "em_name": "fibsem-uint8",
+    "organelles": [],
+    "has_segmentation": false
+  },
+  {
+    "id": "aic_desmosome-2",
+    "title": "Desmosome #2",
+    "organism": "Homo sapiens",
+    "cell_type": "epithelial",
+    "em_name": "fibsem-uint8",
+    "organelles": ["ecs", "endo", "er-mem", "er", "mito-mem", "mito", "nucleus", "pm", "vesicle-mem", "vesicle"],
+    "has_segmentation": true
+  },
+  {
+    "id": "aic_desmosome-3",
+    "title": "Desmosome #3",
+    "organism": "Homo sapiens",
+    "cell_type": "epithelial",
+    "em_name": "fibsem-uint8",
+    "organelles": ["er", "mito", "pm"],
+    "has_segmentation": true
+  },
+  {
+    "id": "jrc_ccl81-covid-1",
+    "title": "CCL81 Vero cell (COVID-19)",
+    "organism": "Cercopithecus aethiops",
+    "cell_type": "Vero",
+    "em_name": "fibsem-uint16",
+    "organelles": [],
+    "has_segmentation": false
+  },
+  {
+    "id": "jrc_cos7-11",
+    "title": "COS-7 cell #11",
+    "organism": "Cercopithecus aethiops",
+    "cell_type": "COS-7",
+    "em_name": "fibsem-uint16",
+    "organelles": ["er", "mito-mem", "mito"],
+    "has_segmentation": true
+  },
+  {
+    "id": "jrc_ctl-id8-1",
+    "title": "CTL-ID8 interaction #1",
+    "organism": "Mus musculus",
+    "cell_type": "CTL-ID8",
+    "em_name": "fibsem-uint16",
+    "organelles": [],
+    "has_segmentation": false
+  },
+  {
+    "id": "jrc_ctl-id8-2",
+    "title": "CTL-ID8 interaction #2",
+    "organism": "Mus musculus",
+    "cell_type": "CTL-ID8",
+    "em_name": "fibsem-uint8",
+    "organelles": [],
+    "has_segmentation": false
+  },
+  {
+    "id": "jrc_ctl-id8-3",
+    "title": "CTL-ID8 interaction #3",
+    "organism": "Mus musculus",
+    "cell_type": "CTL-ID8",
+    "em_name": "fibsem-uint8",
+    "organelles": [],
+    "has_segmentation": false
+  },
+  {
+    "id": "jrc_ctl-id8-4",
+    "title": "CTL-ID8 interaction #4",
+    "organism": "Mus musculus",
+    "cell_type": "CTL-ID8",
+    "em_name": "fibsem-uint8",
+    "organelles": [],
+    "has_segmentation": false
+  },
+  {
+    "id": "jrc_ctl-id8-5",
+    "title": "CTL-ID8 interaction #5",
+    "organism": "Mus musculus",
+    "cell_type": "CTL-ID8",
+    "em_name": "fibsem-uint8",
+    "organelles": [],
+    "has_segmentation": false
+  },
+  {
+    "id": "jrc_dauer-larva",
+    "title": "C. elegans dauer larva",
+    "organism": "Caenorhabditis elegans",
+    "cell_type": "dauer larva",
+    "em_name": "tem-uint8",
+    "organelles": ["nucleus"],
+    "has_segmentation": true,
+    "imaging_modality": "TEM"
+  },
+  {
+    "id": "jrc_fly-acc-calyx-1",
+    "title": "Drosophila accessory calyx",
+    "organism": "Drosophila melanogaster",
+    "cell_type": "brain",
+    "em_name": "fibsem-uint16",
+    "organelles": [],
+    "has_segmentation": false
+  },
+  {
+    "id": "jrc_fly-fsb-1",
+    "title": "Drosophila fan-shaped body",
+    "organism": "Drosophila melanogaster",
+    "cell_type": "brain",
+    "em_name": "fibsem-uint16",
+    "organelles": [],
+    "has_segmentation": false
+  },
+  {
+    "id": "jrc_fly-larva-1",
+    "title": "Drosophila larva",
+    "organism": "Drosophila melanogaster",
+    "cell_type": "larva",
+    "em_name": "tem-uint8",
+    "organelles": [],
+    "has_segmentation": false,
+    "imaging_modality": "TEM"
+  },
+  {
+    "id": "jrc_fly-mb-z0419-20",
+    "title": "Drosophila mushroom body",
+    "organism": "Drosophila melanogaster",
+    "cell_type": "brain",
+    "em_name": "fibsem-uint16",
+    "organelles": [],
+    "has_segmentation": false
+  },
+  {
+    "id": "jrc_hela-2",
+    "title": "HeLa cell (Interphase) #2",
+    "organism": "Homo sapiens",
+    "cell_type": "HeLa",
+    "em_name": "fibsem-uint16",
+    "organelles": ["cent-dapp", "cent", "chrom", "ecs", "endo-mem", "endo", "er-mem", "er", "eres", "golgi-mem", "golgi", "ld-mem", "ld", "lyso-mem", "lyso", "mito-mem", "mito", "mt-out", "ne-mem", "ne", "nhchrom", "np", "nucleolus", "nucleus", "pm", "ribo", "vesicle-mem", "vesicle"],
+    "has_segmentation": true
+  },
+  {
+    "id": "jrc_hela-21",
+    "title": "HeLa cell #21",
+    "organism": "Homo sapiens",
+    "cell_type": "HeLa",
+    "em_name": "fibsem-uint8",
+    "organelles": [],
+    "has_segmentation": false
+  },
+  {
+    "id": "jrc_hela-22",
+    "title": "HeLa cell #22",
+    "organism": "Homo sapiens",
+    "cell_type": "HeLa",
+    "em_name": "fibsem-uint8",
+    "organelles": [],
+    "has_segmentation": false
+  },
+  {
+    "id": "jrc_hela-3",
+    "title": "HeLa cell (Interphase) #3",
+    "organism": "Homo sapiens",
+    "cell_type": "HeLa",
+    "em_name": "fibsem-uint16",
+    "organelles": ["cent-dapp", "cent", "chrom", "ecs", "endo-mem", "endo", "er-mem", "er", "eres", "golgi-mem", "golgi", "ld-mem", "ld", "lyso-mem", "lyso", "mito-mem", "mito", "mt-out", "ne-mem", "ne", "nhchrom", "np", "nucleolus", "nucleus", "pm", "ribo", "vesicle-mem", "vesicle"],
+    "has_segmentation": true,
+    "voxel_size_nm": [4.0, 4.0, 4.0]
+  },
+  {
+    "id": "jrc_hela-4",
+    "title": "HeLa cell #4",
+    "organism": "Homo sapiens",
+    "cell_type": "HeLa",
+    "em_name": "fibsem-uint16",
+    "organelles": [],
+    "has_segmentation": false
+  },
+  {
+    "id": "jrc_hela-bfa",
+    "title": "HeLa cell (Brefeldin A treated)",
+    "organism": "Homo sapiens",
+    "cell_type": "HeLa",
+    "em_name": "fibsem-uint8",
+    "organelles": ["endo", "er", "mito", "vesicle"],
+    "has_segmentation": true
+  },
+  {
+    "id": "jrc_hela-h89-1",
+    "title": "HeLa cell (H89 treated) #1",
+    "organism": "Homo sapiens",
+    "cell_type": "HeLa",
+    "em_name": "fibsem-uint16",
+    "organelles": [],
+    "has_segmentation": false
+  },
+  {
+    "id": "jrc_hela-h89-2",
+    "title": "HeLa cell (H89 treated) #2",
+    "organism": "Homo sapiens",
+    "cell_type": "HeLa",
+    "em_name": "fibsem-uint16",
+    "organelles": [],
+    "has_segmentation": false
+  },
+  {
+    "id": "jrc_hela-nz-2",
+    "title": "HeLa cell (Nocodazole treated) #2",
+    "organism": "Homo sapiens",
+    "cell_type": "HeLa",
+    "em_name": "fibsem-int16",
+    "organelles": [],
+    "has_segmentation": false
+  },
+  {
+    "id": "jrc_jurkat-1",
+    "title": "Jurkat T cell #1",
+    "organism": "Homo sapiens",
+    "cell_type": "Jurkat",
+    "em_name": "fibsem-uint16",
+    "organelles": ["cent-dapp", "cent", "chrom", "ecs", "endo-mem", "endo", "er-mem", "er", "eres", "golgi-mem", "golgi", "ld-mem", "ld", "lyso-mem", "lyso", "mito-mem", "mito", "mt-out", "ne-mem", "ne", "nhchrom", "np", "nucleolus", "nucleus", "pm", "ribo", "vesicle-mem", "vesicle"],
+    "has_segmentation": true
+  },
+  {
+    "id": "jrc_macrophage-2",
+    "title": "Macrophage #2",
+    "organism": "Homo sapiens",
+    "cell_type": "macrophage",
+    "em_name": "fibsem-uint16",
+    "organelles": ["cent-dapp", "cent", "chrom", "ecs", "endo-mem", "endo", "er-mem", "er", "eres", "golgi-mem", "golgi", "ld-mem", "ld", "lyso-mem", "lyso", "mito-mem", "mito", "mt-out", "ne-mem", "ne", "nhchrom", "np", "nucleolus", "nucleus", "pm", "ribo", "vesicle-mem", "vesicle"],
+    "has_segmentation": true
+  },
+  {
+    "id": "jrc_mus-epididymis-1",
+    "title": "Mouse epididymis #1",
+    "organism": "Mus musculus",
+    "cell_type": "epididymis",
+    "em_name": "fibsem-uint8",
+    "organelles": ["nucleus"],
+    "has_segmentation": true
+  },
+  {
+    "id": "jrc_mus-epididymis-2",
+    "title": "Mouse epididymis #2",
+    "organism": "Mus musculus",
+    "cell_type": "epididymis",
+    "em_name": "fibsem-uint8",
+    "organelles": ["nucleus"],
+    "has_segmentation": true
+  },
+  {
+    "id": "jrc_mus-guard-hair-follicle",
+    "title": "Mouse guard hair follicle",
+    "organism": "Mus musculus",
+    "cell_type": "hair follicle",
+    "em_name": "fibsem-uint8",
+    "organelles": [],
+    "has_segmentation": false
+  },
+  {
+    "id": "jrc_mus-heart-1",
+    "title": "Mouse heart #1",
+    "organism": "Mus musculus",
+    "cell_type": "cardiomyocyte",
+    "em_name": "fibsem-uint8",
+    "organelles": ["ecs", "nucleus"],
+    "has_segmentation": true
+  },
+  {
+    "id": "jrc_mus-hippocampus-1",
+    "title": "Mouse hippocampus #1",
+    "organism": "Mus musculus",
+    "cell_type": "hippocampus",
+    "em_name": "fibsem-uint8",
+    "organelles": ["nucleus"],
+    "has_segmentation": true
+  },
+  {
+    "id": "jrc_mus-kidney",
+    "title": "Mouse kidney",
+    "organism": "Mus musculus",
+    "cell_type": "kidney",
+    "em_name": "fibsem-uint8",
+    "organelles": ["empanada-mito"],
+    "has_segmentation": true
+  },
+  {
+    "id": "jrc_mus-kidney-2",
+    "title": "Mouse kidney #2",
+    "organism": "Mus musculus",
+    "cell_type": "kidney",
+    "em_name": "fibsem-uint8",
+    "organelles": [],
+    "has_segmentation": false
+  },
+  {
+    "id": "jrc_mus-kidney-3",
+    "title": "Mouse kidney #3",
+    "organism": "Mus musculus",
+    "cell_type": "kidney",
+    "em_name": "fibsem-uint8",
+    "organelles": ["nucleus"],
+    "has_segmentation": true
+  },
+  {
+    "id": "jrc_mus-liver",
+    "title": "Mouse liver",
+    "organism": "Mus musculus",
+    "cell_type": "hepatocyte",
+    "em_name": "fibsem-uint8",
+    "organelles": ["ecs", "er", "mito-mem", "mito", "nucleus", "pm"],
+    "has_segmentation": true
+  },
+  {
+    "id": "jrc_mus-liver-2",
+    "title": "Mouse liver #2",
+    "organism": "Mus musculus",
+    "cell_type": "hepatocyte",
+    "em_name": "fibsem-uint8",
+    "organelles": [],
+    "has_segmentation": false
+  },
+  {
+    "id": "jrc_mus-liver-3",
+    "title": "Mouse liver #3",
+    "organism": "Mus musculus",
+    "cell_type": "hepatocyte",
+    "em_name": "fibsem-uint8",
+    "organelles": ["nucleus"],
+    "has_segmentation": true
+  },
+  {
+    "id": "jrc_mus-liver-zon-2",
+    "title": "Mouse liver zonation #2",
+    "organism": "Mus musculus",
+    "cell_type": "hepatocyte",
+    "em_name": "fibsem-uint8",
+    "organelles": ["nucleus"],
+    "has_segmentation": true
+  },
+  {
+    "id": "jrc_mus-meissner-corpuscle-1",
+    "title": "Mouse Meissner corpuscle #1",
+    "organism": "Mus musculus",
+    "cell_type": "Meissner corpuscle",
+    "em_name": "fibsem-uint8",
+    "organelles": [],
+    "has_segmentation": false
+  },
+  {
+    "id": "jrc_mus-meissner-corpuscle-2",
+    "title": "Mouse Meissner corpuscle #2",
+    "organism": "Mus musculus",
+    "cell_type": "Meissner corpuscle",
+    "em_name": "fibsem-uint8",
+    "organelles": [],
+    "has_segmentation": false
+  },
+  {
+    "id": "jrc_mus-pacinian-corpuscle",
+    "title": "Mouse Pacinian corpuscle",
+    "organism": "Mus musculus",
+    "cell_type": "Pacinian corpuscle",
+    "em_name": "fibsem-uint8",
+    "organelles": [],
+    "has_segmentation": false
+  },
+  {
+    "id": "jrc_mus-pancreas-1",
+    "title": "Mouse pancreas #1",
+    "organism": "Mus musculus",
+    "cell_type": "pancreas",
+    "em_name": "fibsem-uint16",
+    "organelles": [],
+    "has_segmentation": false
+  },
+  {
+    "id": "jrc_mus-pancreas-2",
+    "title": "Mouse pancreas #2",
+    "organism": "Mus musculus",
+    "cell_type": "pancreas",
+    "em_name": "fibsem-uint8",
+    "organelles": [],
+    "has_segmentation": false
+  },
+  {
+    "id": "jrc_mus-pancreas-3",
+    "title": "Mouse pancreas #3",
+    "organism": "Mus musculus",
+    "cell_type": "pancreas",
+    "em_name": "fibsem-uint16",
+    "organelles": [],
+    "has_segmentation": false
+  },
+  {
+    "id": "jrc_mus-pancreas-4",
+    "title": "Mouse pancreas #4",
+    "organism": "Mus musculus",
+    "cell_type": "pancreas",
+    "em_name": "fibsem-uint8",
+    "organelles": ["nucleus"],
+    "has_segmentation": true
+  },
+  {
+    "id": "jrc_mus-salivary-1",
+    "title": "Mouse salivary gland",
+    "organism": "Mus musculus",
+    "cell_type": "salivary gland",
+    "em_name": "fibsem-uint8",
+    "organelles": [],
+    "has_segmentation": false
+  },
+  {
+    "id": "jrc_mus-sc-zp104a",
+    "title": "Mouse spinal cord ZP104A",
+    "organism": "Mus musculus",
+    "cell_type": "spinal cord",
+    "em_name": "fibsem-uint8",
+    "organelles": [],
+    "has_segmentation": false
+  },
+  {
+    "id": "jrc_mus-sc-zp105a",
+    "title": "Mouse spinal cord ZP105A",
+    "organism": "Mus musculus",
+    "cell_type": "spinal cord",
+    "em_name": "fibsem-uint8",
+    "organelles": [],
+    "has_segmentation": false
+  },
+  {
+    "id": "jrc_mus-skin-1",
+    "title": "Mouse skin #1",
+    "organism": "Mus musculus",
+    "cell_type": "skin",
+    "em_name": "fibsem-uint8",
+    "organelles": ["nucleus"],
+    "has_segmentation": true
+  },
+  {
+    "id": "jrc_mus-thymus-1",
+    "title": "Mouse thymus #1",
+    "organism": "Mus musculus",
+    "cell_type": "thymus",
+    "em_name": "fibsem-uint8",
+    "organelles": ["nucleus"],
+    "has_segmentation": true
+  },
+  {
+    "id": "jrc_sum159-1",
+    "title": "SUM159 breast cancer cell",
+    "organism": "Homo sapiens",
+    "cell_type": "SUM159",
+    "em_name": "fibsem-uint16",
+    "organelles": [],
+    "has_segmentation": false
+  }
+]

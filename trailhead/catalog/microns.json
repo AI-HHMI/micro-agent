@@ -1,0 +1,22 @@
+[
+  {
+    "id": "microns_minnie65",
+    "title": "MICrONS minnie65 — cortical connectome",
+    "organism": "Mus musculus",
+    "cell_type": "cortical neuron",
+    "organelles": ["neuron"],
+    "has_segmentation": true,
+    "raw_url": "gs://iarpa_microns/minnie/minnie65/em",
+    "seg_url": "gs://iarpa_microns/minnie/minnie65/seg"
+  },
+  {
+    "id": "microns_minnie35",
+    "title": "MICrONS minnie35 — cortical connectome (posterior)",
+    "organism": "Mus musculus",
+    "cell_type": "cortical neuron",
+    "organelles": ["neuron"],
+    "has_segmentation": true,
+    "raw_url": "gs://iarpa_microns/minnie/minnie35/em",
+    "seg_url": "gs://iarpa_microns/minnie/minnie35/seg"
+  }
+]

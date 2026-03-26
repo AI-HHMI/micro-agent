@@ -1,0 +1,729 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Microscopy Repository Explorer</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500&display=swap');
+
+  :root {
+    --bg: #0a0e12;
+    --panel: #111620;
+    --border: #1e2a38;
+    --accent: #00d4ff;
+    --accent2: #7b61ff;
+    --green: #00ff9d;
+    --yellow: #ffd166;
+    --red: #ff6b6b;
+    --text: #c8d8e8;
+    --muted: #4a6080;
+    --font-mono: 'IBM Plex Mono', monospace;
+    --font-sans: 'IBM Plex Sans', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    height: 100vh;
+    display: grid;
+    grid-template-rows: 48px 1fr;
+    grid-template-columns: 260px 1fr 280px;
+    grid-template-areas:
+      "header header header"
+      "sidebar chat knowledge";
+    overflow: hidden;
+  }
+
+  /* HEADER */
+  header {
+    grid-area: header;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    gap: 12px;
+  }
+  .logo {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--accent);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .logo span { color: var(--muted); }
+  .status-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 6px var(--green);
+    margin-left: auto;
+  }
+  .status-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+
+  /* SIDEBAR */
+  aside {
+    grid-area: sidebar;
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .sidebar-section {
+    padding: 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .sidebar-label {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+  .repo-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    background: none;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    padding: 6px 8px;
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    cursor: pointer;
+    text-align: left;
+    transition: all 0.15s;
+    margin-bottom: 2px;
+  }
+  .repo-btn:hover { background: rgba(0,212,255,0.05); border-color: var(--border); }
+  .repo-btn.active { background: rgba(0,212,255,0.08); border-color: var(--accent); color: var(--accent); }
+  .repo-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .prompt-btn {
+    display: block;
+    width: 100%;
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 6px 8px;
+    color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    cursor: pointer;
+    text-align: left;
+    transition: all 0.15s;
+    margin-bottom: 3px;
+    line-height: 1.4;
+  }
+  .prompt-btn:hover { border-color: var(--accent2); color: var(--text); background: rgba(123,97,255,0.05); }
+
+  /* CHAT */
+  main {
+    grid-area: chat;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    scroll-behavior: smooth;
+  }
+  .messages::-webkit-scrollbar { width: 4px; }
+  .messages::-webkit-scrollbar-track { background: transparent; }
+  .messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .msg {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-width: 100%;
+    animation: fadeIn 0.2s ease;
+  }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+  .msg-role {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--muted);
+  }
+  .msg.user .msg-role { color: var(--accent2); }
+  .msg.assistant .msg-role { color: var(--accent); }
+
+  .msg-body {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    font-size: 13px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .msg.user .msg-body {
+    border-color: rgba(123,97,255,0.3);
+    background: rgba(123,97,255,0.05);
+  }
+  .msg-body code {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    background: rgba(0,212,255,0.08);
+    border: 1px solid rgba(0,212,255,0.15);
+    border-radius: 3px;
+    padding: 1px 4px;
+    color: var(--accent);
+  }
+  .msg-body pre {
+    background: #070b0f;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 10px;
+    overflow-x: auto;
+    margin-top: 8px;
+  }
+  .msg-body pre code {
+    background: none;
+    border: none;
+    padding: 0;
+    color: var(--green);
+    font-size: 11px;
+  }
+
+  .thinking {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .thinking-dots span {
+    display: inline-block;
+    width: 4px; height: 4px;
+    background: var(--accent);
+    border-radius: 50%;
+    margin: 0 1px;
+    animation: blink 1.2s infinite;
+  }
+  .thinking-dots span:nth-child(2) { animation-delay: 0.2s; }
+  .thinking-dots span:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes blink { 0%,80%,100% { opacity: 0.2; } 40% { opacity: 1; } }
+
+  /* INPUT */
+  .input-area {
+    padding: 12px 16px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    gap: 8px;
+    background: var(--panel);
+  }
+  textarea {
+    flex: 1;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 12px;
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-size: 13px;
+    resize: none;
+    outline: none;
+    transition: border-color 0.15s;
+    line-height: 1.5;
+    min-height: 38px;
+    max-height: 120px;
+  }
+  textarea:focus { border-color: var(--accent); }
+  textarea::placeholder { color: var(--muted); }
+  .send-btn {
+    background: var(--accent);
+    color: var(--bg);
+    border: none;
+    border-radius: 6px;
+    padding: 8px 16px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+    align-self: flex-end;
+    white-space: nowrap;
+  }
+  .send-btn:hover { background: #33ddff; }
+  .send-btn:disabled { background: var(--muted); cursor: not-allowed; }
+
+  /* KNOWLEDGE PANEL */
+  .knowledge {
+    grid-area: knowledge;
+    background: var(--panel);
+    border-left: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .knowledge-header {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    font-family: var(--font-mono);
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--muted);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .clear-btn {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: 9px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  .clear-btn:hover { border-color: var(--red); color: var(--red); }
+  .knowledge-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 10px;
+  }
+  .knowledge-body::-webkit-scrollbar { width: 3px; }
+  .knowledge-body::-webkit-scrollbar-thumb { background: var(--border); }
+  .kb-entry {
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    margin-bottom: 8px;
+    overflow: hidden;
+    font-size: 11px;
+  }
+  .kb-repo {
+    padding: 4px 8px;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .kb-content {
+    padding: 6px 8px;
+    color: var(--text);
+    line-height: 1.5;
+    font-size: 11px;
+    white-space: pre-wrap;
+    border-top: 1px solid var(--border);
+  }
+  .kb-time {
+    margin-left: auto;
+    color: var(--muted);
+    font-size: 9px;
+    font-weight: 400;
+  }
+  .export-btn {
+    margin: 8px;
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    padding: 6px;
+    border-radius: 4px;
+    cursor: pointer;
+    width: calc(100% - 16px);
+    transition: all 0.15s;
+  }
+  .export-btn:hover { border-color: var(--green); color: var(--green); }
+
+  .welcome {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--muted);
+    font-size: 12px;
+    font-family: var(--font-mono);
+    line-height: 1.8;
+  }
+  .welcome .big { font-size: 24px; margin-bottom: 8px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">Micro<span>scope</span> · API Scout</div>
+  <div class="status-label">claude-powered</div>
+  <div class="status-dot"></div>
+</header>
+
+<aside>
+  <div class="sidebar-section">
+    <div class="sidebar-label">Repositories</div>
+    <button class="repo-btn active" onclick="setRepo('EMPIAR')">
+      <div class="repo-dot" style="background:#00d4ff"></div>EMPIAR
+    </button>
+    <button class="repo-btn" onclick="setRepo('IDR')">
+      <div class="repo-dot" style="background:#7b61ff"></div>IDR
+    </button>
+    <button class="repo-btn" onclick="setRepo('MICrONS')">
+      <div class="repo-dot" style="background:#00ff9d"></div>MICrONS
+    </button>
+    <button class="repo-btn" onclick="setRepo('BioImage Archive')">
+      <div class="repo-dot" style="background:#ffd166"></div>BioImage Archive
+    </button>
+    <button class="repo-btn" onclick="setRepo('OpenOrganelle')">
+      <div class="repo-dot" style="background:#ff6b6b"></div>OpenOrganelle
+    </button>
+    <button class="repo-btn" onclick="setRepo('ALL')">
+      <div class="repo-dot" style="background:#888"></div>All Repos
+    </button>
+  </div>
+
+  <div class="sidebar-section">
+    <div class="sidebar-label">Quick Prompts</div>
+    <button class="prompt-btn" onclick="quickPrompt('What REST API endpoints does {repo} expose? List base URL, auth method, and key endpoints.')">
+      🔍 Survey API endpoints
+    </button>
+    <button class="prompt-btn" onclick="quickPrompt('What data formats and metadata schemas does {repo} use? (e.g. OME-Zarr, HDF5, JSON-LD)')">
+      📦 Data formats & schemas
+    </button>
+    <button class="prompt-btn" onclick="quickPrompt('Does {repo} have a Python client library? Show me how to query it programmatically.')">
+      🐍 Python client usage
+    </button>
+    <button class="prompt-btn" onclick="quickPrompt('What are the rate limits, auth requirements, and access restrictions for {repo}?')">
+      🔐 Auth & rate limits
+    </button>
+    <button class="prompt-btn" onclick="quickPrompt('What gaps exist in {repo} API that an agentic discovery layer would need to fill? What cannot be queried programmatically today?')">
+      🤖 Agentic gaps analysis
+    </button>
+    <button class="prompt-btn" onclick="quickPrompt('Write a minimal MCP server skeleton in Python for {repo} that exposes dataset discovery as a tool.')">
+      ⚙️ MCP server skeleton
+    </button>
+    <button class="prompt-btn" onclick="quickPrompt('Compare the API design of EMPIAR, IDR, and MICrONS. What is a unified query interface that could abstract across all three?')">
+      🔗 Unified API design
+    </button>
+  </div>
+</aside>
+
+<main>
+  <div class="messages" id="messages">
+    <div class="welcome">
+      <div class="big">🔬</div>
+      Select a repository and ask a question,<br>
+      or pick a quick prompt from the sidebar.<br><br>
+      <span style="color:var(--accent)">Web search enabled</span> — I can access live docs.
+    </div>
+  </div>
+  <div class="input-area">
+    <textarea id="input" placeholder="Ask about API endpoints, data formats, auth, MCP design..." rows="1"
+      onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
+    <button class="send-btn" id="sendBtn" onclick="send()">Send →</button>
+  </div>
+</main>
+
+<div class="knowledge">
+  <div class="knowledge-header">
+    Knowledge Base
+    <button class="clear-btn" onclick="clearKB()">clear</button>
+  </div>
+  <div class="knowledge-body" id="kb">
+    <div style="color:var(--muted);font-size:11px;font-family:var(--font-mono);padding:8px;text-align:center;margin-top:20px">
+      Findings will appear here as you explore
+    </div>
+  </div>
+  <button class="export-btn" onclick="exportKB()">↓ Export Knowledge Base</button>
+</div>
+
+<script>
+let currentRepo = 'EMPIAR';
+let history = [];
+let kb = [];
+let isThinking = false;
+
+const SYSTEM_PROMPT = `You are a scientific API research agent specializing in microscopy data repositories. 
+You help researchers understand the APIs, data formats, and programmatic access patterns of repositories like EMPIAR, IDR, MICrONS, BioImage Archive, OpenOrganelle, and others.
+
+Your goals:
+1. Use web search to find current, accurate API documentation
+2. Provide concrete, actionable information: actual endpoints, example code, real schemas
+3. Identify gaps where agentic discovery would add value
+4. Think about MCP (Model Context Protocol) server design for each repo
+5. Build toward a unified discovery layer across heterogeneous EM repositories
+
+When you find useful technical facts (API base URLs, auth methods, data formats, Python clients), 
+end your response with a JSON block like this so it can be saved to the knowledge base:
+<kb>
+{"repo": "EMPIAR", "fact": "REST API base: https://www.ebi.ac.uk/empiar/api/ — no auth required for public data. Key endpoint: /entry/{id}/"}
+</kb>
+
+Be concise and technical. The audience is computational biologists at Janelia Research Campus.`;
+
+function setRepo(repo) {
+  currentRepo = repo;
+  document.querySelectorAll('.repo-btn').forEach(b => b.classList.remove('active'));
+  event.target.closest('.repo-btn').classList.add('active');
+}
+
+function quickPrompt(template) {
+  const filled = template.replace(/{repo}/g, currentRepo);
+  document.getElementById('input').value = filled;
+  autoResize(document.getElementById('input'));
+  document.getElementById('input').focus();
+}
+
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+}
+
+function handleKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    send();
+  }
+}
+
+function addMessage(role, content) {
+  const msgs = document.getElementById('messages');
+  
+  // remove welcome if present
+  const welcome = msgs.querySelector('.welcome');
+  if (welcome) welcome.remove();
+
+  const div = document.createElement('div');
+  div.className = `msg ${role}`;
+  
+  const roleLabel = document.createElement('div');
+  roleLabel.className = 'msg-role';
+  roleLabel.textContent = role === 'user' ? `▸ You` : `◆ Claude`;
+  
+  const body = document.createElement('div');
+  body.className = 'msg-body';
+  body.innerHTML = formatContent(content);
+  
+  div.appendChild(roleLabel);
+  div.appendChild(body);
+  msgs.appendChild(div);
+  msgs.scrollTop = msgs.scrollHeight;
+  return body;
+}
+
+function formatContent(text) {
+  // Strip kb blocks from display
+  text = text.replace(/<kb>[\s\S]*?<\/kb>/g, '').trim();
+  
+  // Code blocks
+  text = text.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => 
+    `<pre><code>${escHtml(code.trim())}</code></pre>`);
+  
+  // Inline code
+  text = text.replace(/`([^`]+)`/g, '<code>$1</code>');
+  
+  // Bold
+  text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  
+  // Newlines
+  text = text.replace(/\n/g, '<br>');
+  
+  return text;
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function showThinking() {
+  const msgs = document.getElementById('messages');
+  const div = document.createElement('div');
+  div.className = 'msg assistant';
+  div.id = 'thinking-msg';
+  div.innerHTML = `
+    <div class="msg-role">◆ Claude</div>
+    <div class="thinking">
+      <div class="thinking-dots"><span></span><span></span><span></span></div>
+      Searching & reasoning...
+    </div>`;
+  msgs.appendChild(div);
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+function removeThinking() {
+  const t = document.getElementById('thinking-msg');
+  if (t) t.remove();
+}
+
+function extractKB(text) {
+  const match = text.match(/<kb>([\s\S]*?)<\/kb>/);
+  if (match) {
+    try {
+      return JSON.parse(match[1].trim());
+    } catch(e) { return null; }
+  }
+  return null;
+}
+
+function addToKB(entry) {
+  kb.push({ ...entry, time: new Date().toLocaleTimeString() });
+  renderKB();
+}
+
+const repoColors = {
+  EMPIAR: '#00d4ff', IDR: '#7b61ff', MICrONS: '#00ff9d',
+  'BioImage Archive': '#ffd166', OpenOrganelle: '#ff6b6b'
+};
+
+function renderKB() {
+  const el = document.getElementById('kb');
+  if (kb.length === 0) {
+    el.innerHTML = `<div style="color:var(--muted);font-size:11px;font-family:var(--font-mono);padding:8px;text-align:center;margin-top:20px">Findings will appear here as you explore</div>`;
+    return;
+  }
+  el.innerHTML = kb.map((e, i) => `
+    <div class="kb-entry">
+      <div class="kb-repo" style="background:${repoColors[e.repo] || '#888'}22; color:${repoColors[e.repo] || '#888'}">
+        ${e.repo}
+        <span class="kb-time">${e.time}</span>
+      </div>
+      <div class="kb-content">${escHtml(e.fact)}</div>
+    </div>
+  `).join('');
+}
+
+function clearKB() {
+  if (confirm('Clear knowledge base?')) { kb = []; renderKB(); }
+}
+
+function exportKB() {
+  const md = `# Microscopy Repository API Knowledge Base\n_Generated ${new Date().toLocaleString()}_\n\n` +
+    kb.map(e => `## ${e.repo}\n${e.fact}\n`).join('\n');
+  const blob = new Blob([md], { type: 'text/markdown' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'microscopy_api_kb.md';
+  a.click();
+}
+
+async function send() {
+  if (isThinking) return;
+  const input = document.getElementById('input');
+  const text = input.value.trim();
+  if (!text) return;
+
+  isThinking = true;
+  document.getElementById('sendBtn').disabled = true;
+  input.value = '';
+  input.style.height = 'auto';
+
+  addMessage('user', text);
+  history.push({ role: 'user', content: text });
+
+  showThinking();
+
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1000,
+        system: SYSTEM_PROMPT,
+        tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+        messages: history
+      })
+    });
+
+    const data = await response.json();
+    
+    // Extract text content from response (may include tool use blocks)
+    let assistantText = '';
+    if (data.content) {
+      for (const block of data.content) {
+        if (block.type === 'text') assistantText += block.text;
+      }
+    }
+
+    // If stop_reason is tool_use, we need to handle tool results
+    // For simplicity, do a second pass if needed
+    if (data.stop_reason === 'tool_use') {
+      const toolUseBlocks = data.content.filter(b => b.type === 'tool_use');
+      const toolResults = toolUseBlocks.map(b => ({
+        type: 'tool_result',
+        tool_use_id: b.id,
+        content: 'Search completed - please synthesize from your knowledge and web search results.'
+      }));
+
+      // Add assistant response and tool results to history
+      history.push({ role: 'assistant', content: data.content });
+      history.push({ role: 'user', content: toolResults });
+
+      // Second API call
+      const response2 = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 1000,
+          system: SYSTEM_PROMPT,
+          tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+          messages: history
+        })
+      });
+      const data2 = await response2.json();
+      assistantText = '';
+      if (data2.content) {
+        for (const block of data2.content) {
+          if (block.type === 'text') assistantText += block.text;
+        }
+      }
+      history.push({ role: 'assistant', content: assistantText });
+    } else {
+      history.push({ role: 'assistant', content: assistantText });
+    }
+
+    removeThinking();
+    addMessage('assistant', assistantText);
+
+    // Extract and save KB entry
+    const kbEntry = extractKB(assistantText);
+    if (kbEntry) addToKB(kbEntry);
+
+  } catch (err) {
+    removeThinking();
+    addMessage('assistant', `⚠️ Error: ${err.message}\n\nCheck that the API is reachable from this environment.`);
+  }
+
+  isThinking = false;
+  document.getElementById('sendBtn').disabled = false;
+}
+</script>
+</body>
+</html>
