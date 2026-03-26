@@ -9,7 +9,7 @@ Usage:
     python discovery_server.py
 
 Dependencies:
-    pip install mcp httpx trailhead[agent]
+    pip install mcp httpx micro_agent[agent]
 """
 
 import asyncio
@@ -38,7 +38,7 @@ async def discover_now(
         limit: Max datasets per source
         validate: Whether to validate accessibility of discovered datasets
     """
-    from trailhead.scanners import ALL_SCANNERS, run_all_scanners
+    from micro_agent.scanners import ALL_SCANNERS, run_all_scanners
 
     if sources:
         source_names = [s.strip() for s in sources.split(",")]
@@ -91,8 +91,8 @@ async def discover_with_agent(
         provider: LLM provider — "anthropic" or "litellm"
         model: Model name (default: claude-sonnet-4-20250514 for anthropic)
     """
-    from trailhead.agent.llm import AgentLLM
-    from trailhead.agent.discovery_agent import DiscoveryAgent
+    from micro_agent.agent.llm import AgentLLM
+    from micro_agent.agent.discovery_agent import DiscoveryAgent
 
     llm = AgentLLM(provider=provider, model=model or None)
     agent = DiscoveryAgent(llm=llm)
@@ -117,7 +117,7 @@ async def list_candidates(
         modality_filter: Filter by modality_class (em, fluorescence)
         repository_filter: Filter by repository name
     """
-    from trailhead.registry import Registry
+    from micro_agent.registry import Registry
 
     registry = Registry()
     entries = registry.search(
@@ -150,9 +150,9 @@ async def validate_entry(dataset_id: str) -> str:
     Args:
         dataset_id: The dataset ID to validate
     """
-    from trailhead.registry import Registry
-    from trailhead.discover import DiscoveredDataset
-    from trailhead.validate import validate_dataset
+    from micro_agent.registry import Registry
+    from micro_agent.discover import DiscoveredDataset
+    from micro_agent.validate import validate_dataset
 
     registry = Registry()
     matches = [e for e in registry.entries if e.id == dataset_id]
@@ -190,7 +190,7 @@ async def search_fluorescence(
         organism: Filter by organism
         channel_name: Filter by channel name
     """
-    from trailhead.registry import Registry
+    from micro_agent.registry import Registry
 
     registry = Registry()
     entries = registry.search(

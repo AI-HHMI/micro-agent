@@ -10,7 +10,7 @@ dependencies = [
     "neuroglancer",
 ]
 description = "Cross-repository microscopy training data discovery and loading"
-name = "trailhead"
+name = "micro_agent"
 requires-python = ">= 3.11"
 version = "0.1.0"
 
@@ -24,21 +24,21 @@ build-backend = "hatchling.build"
 requires = ["hatchling"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["trailhead", "mcp_servers"]
+packages = ["micro_agent", "mcp_servers"]
 
 [tool.pixi.project]
 channels = ["conda-forge"]
 platforms = ["linux-64"]
 
 [tool.pixi.pypi-dependencies]
-trailhead = { path = ".", editable = true }
+micro_agent = { path = ".", editable = true }
 bioio = "*"
 bioio-ome-tiff = "*"
 bioio-tifffile = "*"
 
 [tool.pixi.tasks]
-demo = "python -c \"from trailhead import Registry; r = Registry(); hits = r.search(organelle='mito'); print(f'Found {len(hits)} datasets with mito segmentations:'); [print(f'  {h.id} ({h.repository}) - {h.title}') for h in hits]\""
-view = "python -m trailhead.visualize"
-explore = "python -m trailhead.app"
-discover = "python -m trailhead.discover"
-discover-agent = "python -m trailhead.agent.discovery_agent"
+demo = "python -c \"from micro_agent import Registry; r = Registry(); hits = r.search(organelle='mito'); print(f'Found {len(hits)} datasets with mito segmentations:'); [print(f'  {h.id} ({h.repository}) - {h.title}') for h in hits]\""
+view = "python -m micro_agent.visualize"
+explore = "python -m micro_agent.app"
+discover = "python -m micro_agent.discover"
+discover-agent = "python -m micro_agent.agent.discovery_agent"

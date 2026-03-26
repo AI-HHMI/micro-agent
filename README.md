@@ -1,6 +1,6 @@
-# Trailhead
+# Micro-Agent
 
-Cross-repository microscopy training data discovery and loading. Trailhead provides a unified interface to query, load, and visualize EM and fluorescence datasets from multiple public repositories, yielding random crops at a target resolution suitable for training segmentation models.
+Cross-repository microscopy training data discovery and loading. Micro-Agent provides a unified interface to query, load, and visualize EM and fluorescence datasets from multiple public repositories, yielding random crops at a target resolution suitable for training segmentation models.
 
 ## Repositories
 
@@ -101,7 +101,7 @@ Each yielded `CropSample` contains everything needed to use the crop or trace it
 **Random crops from all mito datasets at 8nm:**
 
 ```python
-from trailhead import UnifiedLoader
+from micro_agent import UnifiedLoader
 
 loader = UnifiedLoader(
     organelle="mito",
@@ -183,7 +183,7 @@ The loader automatically picks the best multiscale level for your target resolut
 ### Search the registry
 
 ```python
-from trailhead import Registry
+from micro_agent import Registry
 
 reg = Registry()
 
@@ -202,7 +202,7 @@ reg.list_repositories()  # ['EMPIAR', 'FlyEM', 'Google', 'IDR', 'MICrONS', ...]
 ### Visualize in neuroglancer
 
 ```python
-from trailhead import UnifiedLoader, view_crop
+from micro_agent import UnifiedLoader, view_crop
 
 loader = UnifiedLoader(organelle="mito", crop_size=(64,64,64), resolution_nm=(8,8,8))
 sample = next(iter(loader))
@@ -212,7 +212,7 @@ viewer = view_crop(sample)
 
 ## Web explorer
 
-![Trailhead Explorer](screenshot.png)
+![Micro-Agent Explorer](screenshot.png)
 
 `pixi run explore` starts a local web server with:
 
@@ -233,7 +233,7 @@ The server binds to `0.0.0.0` so it's accessible from other machines on the netw
 
 ### Architecture
 
-Discovery uses a scanner module system (`trailhead/scanners/`). Each scanner implements `BaseScanner` with two methods:
+Discovery uses a scanner module system (`micro_agent/scanners/`). Each scanner implements `BaseScanner` with two methods:
 
 - `scan(limit)` — async method that queries the source API and returns `DiscoveredDataset` entries
 - `validate_access(dataset)` — async method that checks whether the data is actually reachable
@@ -296,7 +296,7 @@ Not all discovered datasets are directly loadable. The `supports_random_access` 
 
 ### Validation
 
-`trailhead/validate.py` provides `validate_dataset()` which checks URL reachability and metadata sanity. Each dataset carries a `validation_status` field: `"verified"`, `"failed"`, or `"pending"`.
+`micro_agent/validate.py` provides `validate_dataset()` which checks URL reachability and metadata sanity. Each dataset carries a `validation_status` field: `"verified"`, `"failed"`, or `"pending"`.
 
 ### Output
 
@@ -321,7 +321,7 @@ Results saved to discovered_datasets.json
 
 ### Agentic discovery
 
-`pixi run discover-agent` runs an LLM-driven discovery loop (`trailhead/agent/`) that goes beyond static API queries. The agent uses tool-calling to:
+`pixi run discover-agent` runs an LLM-driven discovery loop (`micro_agent/agent/`) that goes beyond static API queries. The agent uses tool-calling to:
 
 1. Plan which sources to search and what queries to run
 2. Execute scanner tools based on its plan
@@ -343,7 +343,7 @@ pixi run discover-agent --focus "recent light-sheet zebrafish datasets"
 ## Project structure
 
 ```
-trailhead/
+micro_agent/
   __init__.py              # Public API exports
   registry.py              # DatasetEntry + Registry (searchable catalog)
   loader.py                # UnifiedLoader (resolution-aware crop iterator)
