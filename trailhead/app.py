@@ -480,7 +480,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
   /* META BAR (inside viewer area, at bottom) */
   .meta-bar {
     background: var(--panel);
-    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
     padding: 8px 14px;
     font-family: var(--font-mono);
     font-size: 10px;
@@ -618,12 +618,12 @@ HTML_PAGE = r"""<!DOCTYPE html>
 </div>
 
 <div class="viewer-area">
-  <iframe id="ng-frame"></iframe>
   <div class="meta-bar" id="meta-bar">
     <div class="meta-row" id="meta-row-1"></div>
     <div class="meta-row" id="meta-row-2"></div>
     <div class="meta-row" id="meta-row-3"></div>
   </div>
+  <iframe id="ng-frame"></iframe>
 </div>
 
 <script>
