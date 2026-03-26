@@ -15,6 +15,8 @@ from trailhead.scanners.allen import AllenScanner
 from trailhead.scanners.hpa import HPAScanner
 from trailhead.scanners.cell_image_lib import CellImageLibraryScanner
 from trailhead.scanners.zenodo import ZenodoScanner
+from trailhead.scanners.huggingface import HuggingFaceScanner
+from trailhead.scanners.openalex import OpenAlexScanner
 
 ALL_SCANNERS: list[type[BaseScanner]] = [
     OpenOrganelleScanner,
@@ -25,6 +27,8 @@ ALL_SCANNERS: list[type[BaseScanner]] = [
     HPAScanner,
     CellImageLibraryScanner,
     ZenodoScanner,
+    HuggingFaceScanner,
+    OpenAlexScanner,
 ]
 
 __all__ = [
@@ -37,6 +41,8 @@ __all__ = [
     "HPAScanner",
     "CellImageLibraryScanner",
     "ZenodoScanner",
+    "HuggingFaceScanner",
+    "OpenAlexScanner",
     "ALL_SCANNERS",
     "run_all_scanners",
 ]
