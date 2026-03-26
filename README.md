@@ -175,6 +175,8 @@ viewer = view_crop(sample)
 
 ## Web explorer
 
+![Trailhead Explorer](screenshot.png)
+
 `pixi run explore` starts a local web server with:
 
 - **Control panel** -- organelle, resolution (nm), crop size, repository filters
@@ -206,6 +208,45 @@ trailhead/
   catalog/
     openorganelle.json     # 51 datasets from s3://janelia-cosem-datasets
     microns.json           # MICrONS minnie65/35
+```
+
+## Dataset discovery
+
+`pixi run discover` runs an automated discovery agent (`trailhead/discover.py`) that scans multiple public repositories for datasets, extracts metadata, and outputs a `discovered_datasets.json` file with entries ready for the Registry to load.
+
+### How it works
+
+The agent runs four scanning strategies in sequence:
+
+1. **OpenOrganelle S3 scan** — Lists all top-level directories in `s3://janelia-cosem-datasets`, then for each dataset checks `{id}/{id}.n5/em/` for raw EM data and `{id}/{id}.n5/labels/` for segmentation labels. Automatically extracts organelle names from `*_seg` directory names.
+
+2. **EMPIAR API scan** — Queries the [EMPIAR REST API](https://www.ebi.ac.uk/empiar/api/entries/) for recent entries, extracting dataset IDs, titles, organisms, and imaging modalities.
+
+3. **IDR scan** — Queries the [IDR screens API](https://idr.openmicroscopy.org/api/v0/) for datasets available as OME-Zarr.
+
+4. **BioImage Archive scan** — Searches the [BioStudies API](https://www.ebi.ac.uk/biostudies/api/v1/search) for studies matching "electron microscopy segmentation".
+
+Each discovered dataset is saved as a `DiscoveredDataset` with fields matching the `DatasetEntry` schema (id, repository, title, organism, organelles, access_url, raw_path, segmentation_paths, provenance). The results are written to `discovered_datasets.json` which can be reviewed and merged into the catalog JSONs.
+
+### Output
+
+```
+Discovery agent starting...
+
+[1/4] Scanning OpenOrganelle S3 bucket...
+  Found 51 datasets (14 with segmentations)
+[2/4] Scanning EMPIAR API...
+  Found 50 entries
+[3/4] Scanning IDR...
+  Found 20 entries
+[4/4] Scanning BioImage Archive...
+  Found 20 entries
+
+Total discovered: 141 datasets
+  With segmentations: 14
+  Raw only: 127
+
+Results saved to discovered_datasets.json
 ```
 
 ## Pixi tasks
