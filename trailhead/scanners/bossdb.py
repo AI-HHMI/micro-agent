@@ -10,6 +10,8 @@ S3: s3://bossdb-open-data/
 
 from __future__ import annotations
 
+from collections import defaultdict
+
 import httpx
 import s3fs
 
@@ -17,7 +19,6 @@ from trailhead.discover import DiscoveredDataset
 from trailhead.scanners.base import BaseScanner
 
 BOSSDB_S3_BUCKET = "bossdb-open-data"
-BOSSDB_S3_URL = f"https://{BOSSDB_S3_BUCKET}.s3.amazonaws.com"
 
 # Top-level prefixes that are infrastructure, not datasets
 _SKIP_PREFIXES = {
@@ -36,101 +37,71 @@ class BossDBScanner(BaseScanner):
 
         try:
             fs = s3fs.S3FileSystem(anon=True)
-            top_dirs = fs.ls(BOSSDB_S3_BUCKET)
 
-            for dir_path in sorted(top_dirs):
+            # Single glob to find all precomputed info files at once
+            # Pattern: bucket/collection/experiment/channel/info
+            info_files = fs.glob(f"{BOSSDB_S3_BUCKET}/*/*/*/info")
+
+            # Group by (collection, experiment) → list of channel names
+            experiments: dict[tuple[str, str], list[str]] = defaultdict(list)
+            for path in info_files:
+                # path: "bossdb-open-data/collection/experiment/channel/info"
+                parts = path.split("/")
+                if len(parts) < 5:
+                    continue
+                collection, exp_name, ch_name = parts[1], parts[2], parts[3]
+                if collection in _SKIP_PREFIXES:
+                    continue
+                experiments[(collection, exp_name)].append(ch_name)
+
+            for (collection, exp_name), channels in sorted(experiments.items()):
                 if len(results) >= limit:
                     break
 
-                collection = dir_path.split("/")[-1]
-                if not collection or collection in _SKIP_PREFIXES:
-                    continue
+                # Classify channels
+                raw_channel = None
+                seg_channel = None
+                for ch in channels:
+                    ch_lower = ch.lower()
+                    if any(kw in ch_lower for kw in ["em", "image", "raw", "grayscale"]):
+                        if raw_channel is None:
+                            raw_channel = ch
+                    elif any(kw in ch_lower for kw in ["seg", "label", "annotation", "mask"]):
+                        if seg_channel is None:
+                            seg_channel = ch
 
-                # Each collection can have multiple experiments
-                try:
-                    experiments = fs.ls(dir_path)
-                except Exception:
-                    continue
+                if raw_channel is None:
+                    raw_channel = channels[0]
 
-                for exp_path in experiments:
-                    if len(results) >= limit:
-                        break
+                precomputed_url = (
+                    f"precomputed://https://{BOSSDB_S3_BUCKET}.s3.amazonaws.com"
+                    f"/{collection}/{exp_name}/{raw_channel}"
+                )
 
-                    exp_name = exp_path.split("/")[-1]
-                    if not exp_name or exp_name.startswith("."):
-                        continue
-
-                    # Look for channels with precomputed info files
-                    try:
-                        channels = fs.ls(exp_path)
-                    except Exception:
-                        continue
-
-                    raw_channel = None
-                    seg_channel = None
-                    all_channels = []
-
-                    for ch_path in channels:
-                        ch_name = ch_path.split("/")[-1]
-                        if not ch_name:
-                            continue
-
-                        # Check for info file (precomputed format marker)
-                        info_path = f"{ch_path}/info"
-                        try:
-                            if not fs.exists(info_path):
-                                continue
-                        except Exception:
-                            continue
-
-                        all_channels.append(ch_name)
-
-                        # Classify channel
-                        ch_lower = ch_name.lower()
-                        if any(kw in ch_lower for kw in ["em", "image", "raw", "grayscale"]):
-                            if raw_channel is None:
-                                raw_channel = ch_name
-                        elif any(kw in ch_lower for kw in ["seg", "label", "annotation", "mask"]):
-                            if seg_channel is None:
-                                seg_channel = ch_name
-
-                    if not all_channels:
-                        continue
-
-                    # Default to first channel if no obvious raw channel
-                    if raw_channel is None:
-                        raw_channel = all_channels[0]
-
-                    precomputed_url = (
+                seg_paths = {}
+                if seg_channel:
+                    seg_paths["segmentation"] = (
                         f"precomputed://https://{BOSSDB_S3_BUCKET}.s3.amazonaws.com"
-                        f"/{collection}/{exp_name}/{raw_channel}"
+                        f"/{collection}/{exp_name}/{seg_channel}"
                     )
 
-                    seg_paths = {}
-                    if seg_channel:
-                        seg_url = (
-                            f"precomputed://https://{BOSSDB_S3_BUCKET}.s3.amazonaws.com"
-                            f"/{collection}/{exp_name}/{seg_channel}"
-                        )
-                        seg_paths["segmentation"] = seg_url
-
-                    ds_id = f"bossdb_{collection}_{exp_name}"
-                    results.append(DiscoveredDataset(
-                        id=ds_id,
-                        repository="BossDB",
-                        title=f"BossDB — {collection}/{exp_name}",
-                        organism="",
-                        imaging_modality="electron microscopy",
-                        has_raw=True,
-                        has_segmentation=bool(seg_channel),
-                        data_format="neuroglancer-precomputed",
-                        access_url=precomputed_url,
-                        raw_path=precomputed_url,
-                        segmentation_paths=seg_paths,
-                        provenance="BossDB S3 bucket scan",
-                        modality_class="em",
-                        supports_random_access=True,
-                    ))
+                ds_id = f"bossdb_{collection}_{exp_name}"
+                results.append(DiscoveredDataset(
+                    id=ds_id,
+                    repository="BossDB",
+                    title=f"BossDB — {collection}/{exp_name}",
+                    organism="",
+                    imaging_modality="electron microscopy",
+                    has_raw=True,
+                    has_segmentation=bool(seg_channel),
+                    data_format="neuroglancer-precomputed",
+                    access_url=precomputed_url,
+                    raw_path=precomputed_url,
+                    segmentation_paths=seg_paths,
+                    provenance="BossDB S3 bucket scan",
+                    modality_class="em",
+                    supports_random_access=True,
+                ))
 
         except Exception as e:
             print(f"  [{self.name}] Error scanning S3 bucket: {e}")
@@ -142,7 +113,6 @@ class BossDBScanner(BaseScanner):
         if not dataset.raw_path:
             return "pending"
         try:
-            # Extract HTTPS URL from precomputed:// URI
             https_url = dataset.raw_path.replace("precomputed://", "")
             info_url = f"{https_url}/info"
             async with httpx.AsyncClient(timeout=15.0) as client:
