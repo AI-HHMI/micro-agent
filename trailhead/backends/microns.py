@@ -56,6 +56,15 @@ class MICrONSBackend(Backend):
         except Exception:
             return super().get_voxel_size(entry, scale)
 
+    def has_voxel_metadata(self, entry: DatasetEntry) -> bool:
+        """MICrONS reads voxel sizes from neuroglancer precomputed /info."""
+        url = self._resolve_raw_url(entry)
+        try:
+            info = self._fetch_info(url)
+            return bool(info.get("scales"))
+        except Exception:
+            return super().has_voxel_metadata(entry)
+
     def get_num_scales(self, entry: DatasetEntry) -> int:
         url = self._resolve_raw_url(entry)
         try:
@@ -126,10 +135,10 @@ class MICrONSBackend(Backend):
         offset: tuple[int, int, int],
         shape: tuple[int, int, int],
         scale: int = 0,
-    ) -> NDArray[np.uint8]:
+    ) -> NDArray:
         arr = self._open_array(self._resolve_raw_url(entry), scale)
         data = self._read_crop(arr, offset, shape)
-        return np.asarray(data, dtype=np.uint8)
+        return np.asarray(data)
 
     def read_segmentation_crop(
         self,

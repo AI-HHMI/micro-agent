@@ -146,18 +146,7 @@ class EMPIARBackend(Backend):
                 crop = crop[::factor, ::factor]
             volume.append(crop)
 
-        data = np.stack(volume, axis=0)
-
-        # Normalize to uint8
-        if data.dtype != np.uint8:
-            dmin, dmax = float(data.min()), float(data.max())
-            if dmax > dmin:
-                data = ((data.astype(np.float32) - dmin) / (dmax - dmin) * 255).astype(
-                    np.uint8
-                )
-            else:
-                data = np.zeros_like(data, dtype=np.uint8)
-        return data
+        return np.stack(volume, axis=0)
 
     def read_segmentation_crop(
         self,
@@ -166,7 +155,7 @@ class EMPIARBackend(Backend):
         offset: tuple[int, int, int],
         shape: tuple[int, int, int],
         scale: int = 0,
-    ) -> NDArray[np.uint8]:
+    ) -> NDArray:
         raise NotImplementedError(
             f"EMPIAR entry {entry.id}: No segmentation data available. "
             "Most EMPIAR entries contain raw data only."

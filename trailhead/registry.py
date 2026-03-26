@@ -31,6 +31,14 @@ class DatasetEntry:
     raw_path: str = ""
     segmentation_paths: dict[str, str] = field(default_factory=dict)
     supports_random_access: bool = True  # False for FTP/download-only repos like EMPIAR
+    # Multi-channel / fluorescence fields
+    num_channels: int = 1
+    channel_names: list[str] = field(default_factory=list)  # e.g. ["DAPI", "GFP", "mCherry"]
+    wavelengths_nm: list[float] = field(default_factory=list)  # e.g. [405, 488, 561]
+    fluorophores: list[str] = field(default_factory=list)
+    bit_depth: int = 8
+    modality_class: str = ""  # "em" | "fluorescence" | "correlative"
+    validation_status: str = "pending"  # "verified" | "failed" | "pending"
 
     def matches(self, query: str) -> bool:
         """Check if this entry matches a free-text query."""
@@ -43,6 +51,8 @@ class DatasetEntry:
                 self.cell_type,
                 self.imaging_modality,
                 " ".join(self.organelles),
+                " ".join(self.channel_names),
+                " ".join(self.fluorophores),
             ]
         ).lower()
         return all(term in searchable for term in q.split())
@@ -90,6 +100,7 @@ def _load_openorganelle_catalog() -> list[DatasetEntry]:
             segmentation_paths={
                 o: f"{n5_base}/labels/{o}_seg" for o in clean_organelles
             },
+            modality_class="em",
         ))
     return entries
 
@@ -120,6 +131,7 @@ def _load_microns_catalog() -> list[DatasetEntry]:
             segmentation_paths={
                 org: item.get("seg_url", "") for org in item.get("organelles", [])
             },
+            modality_class="em",
         ))
     return entries
 
@@ -139,6 +151,7 @@ _EMPIAR_ENTRIES = [
         data_format="tiff",
         access_url="https://ftp.ebi.ac.uk/empiar/world_availability/10310/data/",
         raw_path="20180813_platynereis_parapodia/raw_16bit",
+        modality_class="em",
     ),
 ]
 
@@ -154,6 +167,7 @@ _IDR_ENTRIES = [
         has_raw=True,
         data_format="ome-zarr",
         supports_random_access=False,  # EBI S3 not reachable from Janelia
+        modality_class="em",
     ),
 ]
 
@@ -173,6 +187,7 @@ _GCS_ENTRIES = [
         data_format="neuroglancer_precomputed",
         raw_path="gs://h01-release/data/20210601/4nm_raw",
         segmentation_paths={"neuron": "gs://h01-release/data/20210601/c3"},
+        modality_class="em",
     ),
     DatasetEntry(
         id="hemibrain_v1.2",
@@ -190,6 +205,7 @@ _GCS_ENTRIES = [
             "neuron": "gs://neuroglancer-janelia-flyem-hemibrain/v1.2/segmentation",
             "mito": "gs://neuroglancer-janelia-flyem-hemibrain/v1.2/mito-objects",
         },
+        modality_class="em",
     ),
     DatasetEntry(
         id="fafb_v14",
@@ -204,6 +220,7 @@ _GCS_ENTRIES = [
         data_format="neuroglancer_precomputed",
         raw_path="gs://neuroglancer-fafb-data/fafb_v14/fafb_v14_orig",
         segmentation_paths={"neuron": "gs://fafb-ffn1-20200412/segmentation"},
+        modality_class="em",
     ),
     DatasetEntry(
         id="kasthuri2011",
@@ -218,6 +235,7 @@ _GCS_ENTRIES = [
         data_format="neuroglancer_precomputed",
         raw_path="gs://neuroglancer-public-data/kasthuri2011/image",
         segmentation_paths={"neuron": "gs://neuroglancer-public-data/kasthuri2011/ground_truth"},
+        modality_class="em",
     ),
     DatasetEntry(
         id="flyem_fib25",
@@ -232,6 +250,7 @@ _GCS_ENTRIES = [
         data_format="neuroglancer_precomputed",
         raw_path="gs://neuroglancer-public-data/flyem_fib-25/image",
         segmentation_paths={"neuron": "gs://neuroglancer-public-data/flyem_fib-25/ground_truth"},
+        modality_class="em",
     ),
     # Janelia FlyEM — MANC (Male Adult Nerve Cord)
     DatasetEntry(
@@ -247,6 +266,7 @@ _GCS_ENTRIES = [
         data_format="neuroglancer_precomputed",
         raw_path="gs://flyem-male-cns/em/em-clahe-jpeg",
         segmentation_paths={"neuron": "gs://flyem-male-cns/v0.9/segmentation"},
+        modality_class="em",
     ),
     # Janelia FlyEM — Optic Lobe (not publicly accessible yet)
     DatasetEntry(
@@ -263,6 +283,7 @@ _GCS_ENTRIES = [
         raw_path="gs://flyem-optic-lobe/em/em-clahe-jpeg",
         segmentation_paths={"neuron": "gs://flyem-optic-lobe/v1.1/segmentation"},
         supports_random_access=False,
+        modality_class="em",
     ),
     # FlyWire (FAFB with Seung Lab segmentation)
     DatasetEntry(
@@ -277,6 +298,7 @@ _GCS_ENTRIES = [
         has_raw=True,
         data_format="neuroglancer_precomputed",
         raw_path="gs://microns-seunglab/drosophila_v0/alignment/image_rechunked",
+        modality_class="em",
     ),
 ]
 
@@ -293,6 +315,7 @@ _OPENNEURODATA_ENTRIES = [
         has_raw=True,
         data_format="neuroglancer_precomputed",
         raw_path="s3://open-neurodata/bock11/image",
+        modality_class="em",
     ),
     DatasetEntry(
         id="hildebrand_zebrafish",
@@ -305,6 +328,7 @@ _OPENNEURODATA_ENTRIES = [
         has_raw=True,
         data_format="neuroglancer_precomputed",
         raw_path="s3://open-neurodata/hildebrand/130201zf142/160515_SWiFT_60nmpx",
+        modality_class="em",
     ),
     DatasetEntry(
         id="kharris15_spine",
@@ -319,6 +343,7 @@ _OPENNEURODATA_ENTRIES = [
         data_format="neuroglancer_precomputed",
         raw_path="s3://open-neurodata/kharris15/spine/em",
         segmentation_paths={"neuron": "s3://open-neurodata/kharris15/spine/anno"},
+        modality_class="em",
     ),
     DatasetEntry(
         id="wanner16_zebrafish_ob",
@@ -331,6 +356,7 @@ _OPENNEURODATA_ENTRIES = [
         has_raw=True,
         data_format="neuroglancer_precomputed",
         raw_path="s3://open-neurodata/wanner16/AA201605/SBEM1",
+        modality_class="em",
     ),
     DatasetEntry(
         id="witvliet2020_celegans_1",
@@ -343,6 +369,7 @@ _OPENNEURODATA_ENTRIES = [
         has_raw=True,
         data_format="neuroglancer_precomputed",
         raw_path="s3://bossdb-open-data/witvliet2020/Dataset_1/em",
+        modality_class="em",
     ),
 ]
 
@@ -365,6 +392,7 @@ _CELLMAP_PUBLICATIONS_ENTRIES = [
             org: f"heinrich-2021a/jrc_hela-2/jrc_hela-2.n5/volumes/labels/{org}" for org in
             ["mito", "er", "nucleus", "golgi", "vesicle", "pm", "endo"]
         },
+        modality_class="em",
     ),
 ]
 
@@ -379,9 +407,11 @@ class Registry:
         hits = registry.search("er", repository="OpenOrganelle")
     """
 
-    def __init__(self) -> None:
+    def __init__(self, load_discovered: bool = True) -> None:
         self._entries: list[DatasetEntry] = []
         self._load_curated()
+        if load_discovered:
+            self._auto_load_discovered()
 
     def _load_curated(self) -> None:
         """Load all curated catalogs."""
@@ -393,11 +423,25 @@ class Registry:
         self._entries.extend(_OPENNEURODATA_ENTRIES)
         self._entries.extend(_CELLMAP_PUBLICATIONS_ENTRIES)
 
+    def _auto_load_discovered(self) -> None:
+        """Auto-load discovered datasets from common locations."""
+        # Check for discovered_datasets.json in the project root and working dir
+        candidates = [
+            Path(__file__).parent.parent / "discovered_datasets.json",
+            Path("discovered_datasets.json"),
+        ]
+        existing_ids = {e.id for e in self._entries}
+        for path in candidates:
+            if path.exists():
+                count = self.load_discovered(path, skip_ids=existing_ids)
+                if count > 0:
+                    break
+
     def add(self, entry: DatasetEntry) -> None:
         """Add a dataset entry to the registry."""
         self._entries.append(entry)
 
-    def load_discovered(self, path: str | Path) -> int:
+    def load_discovered(self, path: str | Path, skip_ids: set[str] | None = None) -> int:
         """Load entries from a discovery JSON file. Returns count added."""
         path = Path(path)
         if not path.exists():
@@ -406,6 +450,8 @@ class Registry:
             items = json.load(f)
         count = 0
         for item in items:
+            if skip_ids and item.get("id", "") in skip_ids:
+                continue
             entry = DatasetEntry(
                 id=item["id"],
                 repository=item.get("repository", "discovered"),
@@ -420,6 +466,14 @@ class Registry:
                 access_url=item.get("access_url", ""),
                 raw_path=item.get("raw_path", ""),
                 segmentation_paths=item.get("segmentation_paths", {}),
+                supports_random_access=item.get("supports_random_access", True),
+                num_channels=item.get("num_channels", 1),
+                channel_names=item.get("channel_names", []),
+                wavelengths_nm=item.get("wavelengths_nm", []),
+                fluorophores=item.get("fluorophores", []),
+                bit_depth=item.get("bit_depth", 8),
+                modality_class=item.get("modality_class", ""),
+                validation_status=item.get("validation_status", "pending"),
             )
             self._entries.append(entry)
             count += 1
@@ -438,6 +492,9 @@ class Registry:
         cell_type: str = "",
         repository: str = "",
         has_segmentation: bool | None = None,
+        modality_class: str = "",
+        min_channels: int = 0,
+        validation_status: str = "",
     ) -> list[DatasetEntry]:
         """Search the registry with optional filters."""
         results = self._entries
@@ -465,6 +522,17 @@ class Registry:
 
         if has_segmentation is not None:
             results = [e for e in results if e.has_segmentation == has_segmentation]
+
+        if modality_class:
+            mc_lower = modality_class.lower()
+            results = [e for e in results if e.modality_class.lower() == mc_lower]
+
+        if min_channels > 0:
+            results = [e for e in results if e.num_channels >= min_channels]
+
+        if validation_status:
+            vs_lower = validation_status.lower()
+            results = [e for e in results if e.validation_status.lower() == vs_lower]
 
         return results
 

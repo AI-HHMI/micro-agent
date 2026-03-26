@@ -437,5 +437,87 @@ async def get_access_code(repository: str, accession: str) -> str:
         return json.dumps({"error": f"Unknown repository: {repository}. Use one of: {list(snippets.keys())}"})
 
 
+@mcp.tool()
+async def search_fluorescence(
+    fluorophore: str = "",
+    organism: str = "",
+    channel_name: str = "",
+    limit: int = 20,
+) -> str:
+    """Search for fluorescence microscopy datasets across all repositories.
+
+    Searches IDR, Allen Institute, Human Protein Atlas, Cell Image Library,
+    and Zenodo for fluorescence/confocal/light sheet datasets.
+
+    Args:
+        fluorophore: Filter by fluorophore (e.g., "GFP", "DAPI", "mCherry")
+        organism: Filter by organism name
+        channel_name: Filter by channel name
+        limit: Maximum results to return
+    """
+    results = []
+
+    # Search IDR for fluorescence screens
+    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+        try:
+            resp = await client.get(
+                "https://idr.openmicroscopy.org/api/v0/m/screens/",
+                headers={"Accept": "application/json"},
+            )
+            if resp.status_code == 200:
+                screens = resp.json().get("data", [])
+                for screen in screens[:limit]:
+                    name = screen.get("name", "").lower()
+                    desc = screen.get("description", "").lower()
+                    is_fluor = any(
+                        kw in name or kw in desc
+                        for kw in ["fluorescence", "confocal", "gfp", "dapi",
+                                    "light sheet", "widefield"]
+                    )
+                    if is_fluor:
+                        results.append(
+                            UnifiedResult(
+                                repository="IDR",
+                                accession=str(screen.get("id", "")),
+                                title=screen.get("name", ""),
+                                description=screen.get("description", "")[:200],
+                                imaging_modality="fluorescence",
+                                access_url=f"https://idr.openmicroscopy.org/webclient/?show=screen-{screen.get('id', '')}",
+                            )
+                        )
+        except Exception:
+            pass
+
+        # Search BioImage Archive for fluorescence data
+        try:
+            query = f"fluorescence microscopy {fluorophore} {organism}".strip()
+            resp = await client.get(
+                "https://www.ebi.ac.uk/biostudies/api/v1/search",
+                params={"query": query, "pageSize": limit},
+            )
+            if resp.status_code == 200:
+                hits = resp.json().get("hits", [])
+                for hit in hits[:limit]:
+                    results.append(
+                        UnifiedResult(
+                            repository="BioImage Archive",
+                            accession=hit.get("accession", ""),
+                            title=hit.get("title", ""),
+                            imaging_modality="fluorescence",
+                            access_url=f"https://www.ebi.ac.uk/biostudies/studies/{hit.get('accession', '')}",
+                        )
+                    )
+        except Exception:
+            pass
+
+    return json.dumps(
+        {
+            "total": len(results),
+            "results": [asdict(r) for r in results[:limit]],
+        },
+        indent=2,
+    )
+
+
 if __name__ == "__main__":
     mcp.run(transport="stdio")

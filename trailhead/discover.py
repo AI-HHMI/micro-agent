@@ -42,6 +42,15 @@ class DiscoveredDataset:
     raw_path: str = ""
     segmentation_paths: dict[str, str] = field(default_factory=dict)
     provenance: str = ""  # How/where it was found
+    supports_random_access: bool = True  # False for catalog-only entries without data paths
+    # Multi-channel / fluorescence fields
+    num_channels: int = 1
+    channel_names: list[str] = field(default_factory=list)
+    wavelengths_nm: list[float] = field(default_factory=list)
+    fluorophores: list[str] = field(default_factory=list)
+    bit_depth: int = 8
+    modality_class: str = ""  # "em" | "fluorescence" | "correlative"
+    validation_status: str = "pending"  # "verified" | "failed" | "pending"
 
 
 # ---------------------------------------------------------------------------
@@ -223,45 +232,65 @@ def scan_bioimage_archive() -> list[DiscoveredDataset]:
 # Main discovery orchestrator
 # ---------------------------------------------------------------------------
 
-def run_discovery(output_path: str = "discovered_datasets.json") -> list[DiscoveredDataset]:
-    """Run all discovery strategies and save results."""
-    all_discovered: list[DiscoveredDataset] = []
+def run_discovery(
+    output_path: str = "discovered_datasets.json",
+    use_new_scanners: bool = True,
+    validate: bool = False,
+) -> list[DiscoveredDataset]:
+    """Run all discovery strategies and save results.
 
-    print("Discovery agent starting...")
-    print()
+    Args:
+        output_path: Path to write discovered datasets JSON.
+        use_new_scanners: If True, use the async scanner module (8 sources
+            including fluorescence). If False, use the legacy 4-source scan.
+        validate: If True, validate accessibility of each discovered dataset.
+    """
+    if use_new_scanners:
+        from trailhead.scanners import run_all_scanners
+        print("Discovery agent starting (all sources)...")
+        print()
+        all_discovered = run_all_scanners(validate=validate)
+    else:
+        # Legacy mode: original 4 sources
+        all_discovered = []
+        print("Discovery agent starting (legacy mode)...")
+        print()
 
-    # Strategy 1: OpenOrganelle
-    print("[1/4] Scanning OpenOrganelle S3 bucket...")
-    oo_results = scan_openorganelle()
-    print(f"  Found {len(oo_results)} datasets ({sum(1 for r in oo_results if r.has_segmentation)} with segmentations)")
-    all_discovered.extend(oo_results)
+        print("[1/4] Scanning OpenOrganelle S3 bucket...")
+        oo_results = scan_openorganelle()
+        print(f"  Found {len(oo_results)} datasets ({sum(1 for r in oo_results if r.has_segmentation)} with segmentations)")
+        all_discovered.extend(oo_results)
 
-    # Strategy 2: EMPIAR
-    print("[2/4] Scanning EMPIAR API...")
-    empiar_results = scan_empiar()
-    print(f"  Found {len(empiar_results)} entries")
-    all_discovered.extend(empiar_results)
+        print("[2/4] Scanning EMPIAR API...")
+        empiar_results = scan_empiar()
+        print(f"  Found {len(empiar_results)} entries")
+        all_discovered.extend(empiar_results)
 
-    # Strategy 3: IDR
-    print("[3/4] Scanning IDR...")
-    idr_results = scan_idr()
-    print(f"  Found {len(idr_results)} entries")
-    all_discovered.extend(idr_results)
+        print("[3/4] Scanning IDR...")
+        idr_results = scan_idr()
+        print(f"  Found {len(idr_results)} entries")
+        all_discovered.extend(idr_results)
 
-    # Strategy 4: BioImage Archive
-    print("[4/4] Scanning BioImage Archive...")
-    bia_results = scan_bioimage_archive()
-    print(f"  Found {len(bia_results)} entries")
-    all_discovered.extend(bia_results)
+        print("[4/4] Scanning BioImage Archive...")
+        bia_results = scan_bioimage_archive()
+        print(f"  Found {len(bia_results)} entries")
+        all_discovered.extend(bia_results)
 
     # Save results
     output = [asdict(d) for d in all_discovered]
     with open(output_path, "w") as f:
         json.dump(output, f, indent=2)
 
+    em_count = sum(1 for d in all_discovered if d.modality_class == "em")
+    fluor_count = sum(1 for d in all_discovered if d.modality_class == "fluorescence")
+    seg_count = sum(1 for d in all_discovered if d.has_segmentation)
+    verified = sum(1 for d in all_discovered if d.validation_status == "verified")
+
     print(f"\nTotal discovered: {len(all_discovered)} datasets")
-    print(f"  With segmentations: {sum(1 for d in all_discovered if d.has_segmentation)}")
-    print(f"  Raw only: {sum(1 for d in all_discovered if not d.has_segmentation)}")
+    print(f"  EM: {em_count}  |  Fluorescence: {fluor_count}  |  Other: {len(all_discovered) - em_count - fluor_count}")
+    print(f"  With segmentations: {seg_count}")
+    if validate:
+        print(f"  Verified accessible: {verified}")
     print(f"\nResults saved to {output_path}")
 
     return all_discovered
@@ -273,9 +302,22 @@ def run_discovery(output_path: str = "discovered_datasets.json") -> list[Discove
 
 if __name__ == "__main__":
     output = "discovered_datasets.json"
-    if len(sys.argv) > 1 and sys.argv[1] == "--output":
-        output = sys.argv[2]
-    elif len(sys.argv) > 1:
-        output = sys.argv[1]
+    use_legacy = False
+    do_validate = False
 
-    run_discovery(output)
+    args = sys.argv[1:]
+    while args:
+        if args[0] == "--output" and len(args) > 1:
+            output = args[1]
+            args = args[2:]
+        elif args[0] == "--legacy":
+            use_legacy = True
+            args = args[1:]
+        elif args[0] == "--validate":
+            do_validate = True
+            args = args[1:]
+        else:
+            output = args[0]
+            args = args[1:]
+
+    run_discovery(output, use_new_scanners=not use_legacy, validate=do_validate)

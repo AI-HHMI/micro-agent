@@ -11,6 +11,7 @@ import math
 import queue
 import random
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Iterator
 
@@ -24,13 +25,14 @@ from trailhead.backends.openorganelle import OpenOrganelleBackend
 from trailhead.backends.microns import MICrONSBackend
 from trailhead.backends.empiar import EMPIARBackend
 from trailhead.backends.idr import IDRBackend
+from trailhead.backends.bioimage import BioImageBackend
 
 
 @dataclass
 class CropSample:
     """A single training sample."""
 
-    raw: NDArray[np.uint8]
+    raw: NDArray
     segmentation: NDArray | None
     dataset_id: str
     repository: str
@@ -42,6 +44,10 @@ class CropSample:
     seg_status: str = "no_seg_available"  # "loaded", "empty", "failed: ...", "no_seg_available"
     raw_path: str = ""
     seg_path: str = ""
+    voxel_size_is_estimated: bool = False  # True if voxel size is a default, not from metadata
+    # Multi-channel support (fluorescence)
+    raw_multichannel: NDArray | None = None  # (C, Z, Y, X) at native dtype
+    channel_names: list[str] = field(default_factory=list)
 
 
 def _get_backend(repository: str) -> Backend:
@@ -54,6 +60,11 @@ def _get_backend(repository: str) -> Backend:
         "OpenNeuroData": MICrONSBackend,
         "EMPIAR": EMPIARBackend,
         "IDR": IDRBackend,
+        "BioImage Archive": IDRBackend,
+        "Allen": BioImageBackend,
+        "HPA": BioImageBackend,
+        "CellImageLibrary": BioImageBackend,
+        "Zenodo": BioImageBackend,
     }
     backend_cls = backends.get(repository)
     if backend_cls is None:
@@ -113,6 +124,7 @@ class UnifiedLoader:
         balance_repositories: bool = False,
         require_nonempty_raw: bool = False,
         require_nonempty_seg: bool = False,
+        modality_class: str = "",
     ) -> None:
         self.organelle = organelle
         self.crop_size = crop_size
@@ -138,6 +150,8 @@ class UnifiedLoader:
             search_kwargs["organism"] = organism
         if cell_type:
             search_kwargs["cell_type"] = cell_type
+        if modality_class:
+            search_kwargs["modality_class"] = modality_class
         if repositories:
             self._datasets: list[DatasetEntry] = []
             for repo in repositories:
@@ -161,8 +175,9 @@ class UnifiedLoader:
         skipped = [e for e in self._datasets if not e.supports_random_access]
         self._datasets = [e for e in self._datasets if e.supports_random_access]
         if skipped:
-            print(f"  Skipped {len(skipped)} dataset(s) requiring download: "
-                  f"{', '.join(e.id for e in skipped)}")
+            print(f"  Skipped {len(skipped)} dataset(s) without direct data paths: "
+                  f"{', '.join(e.id for e in skipped[:5])}"
+                  f"{'...' if len(skipped) > 5 else ''}")
 
         if not self._datasets:
             raise ValueError(
@@ -186,6 +201,42 @@ class UnifiedLoader:
         self._scale_info: dict[str, tuple[int, tuple[float, float, float], tuple[float, float, float], tuple[int, int, int]]] = {}
         # Cache volume shapes at the chosen scale
         self._shapes: dict[str, tuple[int, ...]] = {}
+        # Lock for thread-safe cache writes during pre-warming
+        self._cache_lock = threading.Lock()
+
+        # Pre-warm slow backends (bioio/fluorescence) in parallel threads so
+        # first _fetch_one() doesn't block on TIFF header downloads from S3.
+        self._prewarm(max_datasets=6)
+
+    def _prewarm(self, max_datasets: int = 6) -> None:
+        """Pre-open slow datasets (bioio/fluorescence) in background threads.
+
+        This forces BioImage objects into the cache so subsequent
+        _fetch_one() calls don't block for 3-13s per dataset.
+        Runs in a daemon thread so it doesn't block loader creation.
+        """
+        slow_entries = [
+            e for e in self._datasets
+            if e.repository not in self._FAST_REPOS
+        ]
+        if not slow_entries:
+            return
+
+        to_warm = slow_entries[:max_datasets]
+
+        def _warm_one(entry: DatasetEntry) -> None:
+            try:
+                self._get_scale_info(entry)
+                self._get_shape(entry)
+                print(f"  Warmed {entry.id}")
+            except Exception as e:
+                print(f"  Warm-up failed for {entry.id}: {e}")
+
+        def _run_warmup() -> None:
+            with ThreadPoolExecutor(max_workers=min(4, len(to_warm))) as pool:
+                pool.map(_warm_one, to_warm)
+
+        threading.Thread(target=_run_warmup, daemon=True).start()
 
     def _get_scale_info(self, entry: DatasetEntry) -> tuple[int, tuple[float, float, float], tuple[float, float, float], tuple[int, int, int]]:
         """Return (scale, source_voxel_nm, zoom_factors, read_shape) for a dataset."""
@@ -195,22 +246,18 @@ class UnifiedLoader:
         backend = self._backends[entry.repository]
 
         if self.resolution_nm is None:
-            # No target resolution — read at scale 0, no resampling
             vox = backend.get_voxel_size(entry, 0)
             info = (0, vox, (1.0, 1.0, 1.0), self.crop_size)
-            self._scale_info[entry.id] = info
+            with self._cache_lock:
+                self._scale_info[entry.id] = info
             return info
 
         target = self.resolution_nm
         scale = backend.pick_scale(entry, target)
         src_vox = backend.get_voxel_size(entry, scale)
 
-        # zoom_factors: applied to read data to produce output at target resolution
-        # zoom < 1 means downsampling (source finer than target)
-        # zoom > 1 means upsampling (source coarser than target)
         zoom_factors = (src_vox[0] / target[0], src_vox[1] / target[1], src_vox[2] / target[2])
 
-        # How many source voxels to read to cover crop_size output voxels
         read_shape = (
             math.ceil(self.crop_size[0] / zoom_factors[0]),
             math.ceil(self.crop_size[1] / zoom_factors[1]),
@@ -218,15 +265,19 @@ class UnifiedLoader:
         )
 
         info = (scale, src_vox, zoom_factors, read_shape)
-        self._scale_info[entry.id] = info
+        with self._cache_lock:
+            self._scale_info[entry.id] = info
         return info
 
     def _get_shape(self, entry: DatasetEntry) -> tuple[int, ...]:
-        if entry.id not in self._shapes:
-            backend = self._backends[entry.repository]
-            scale, _, _, _ = self._get_scale_info(entry)
-            self._shapes[entry.id] = backend.get_volume_shape(entry, scale)
-        return self._shapes[entry.id]
+        if entry.id in self._shapes:
+            return self._shapes[entry.id]
+        backend = self._backends[entry.repository]
+        scale, _, _, _ = self._get_scale_info(entry)
+        shape = backend.get_volume_shape(entry, scale)
+        with self._cache_lock:
+            self._shapes[entry.id] = shape
+        return shape
 
     def _clamp_read_shape(self, entry: DatasetEntry) -> tuple[int, int, int]:
         """Return the read shape clamped to the volume dimensions."""
@@ -266,29 +317,93 @@ class UnifiedLoader:
         out[slices] = resampled[slices]
         return out
 
+    # Repositories with fast metadata access (zarr/N5 with small metadata files)
+    _FAST_REPOS = {"OpenOrganelle", "EMPIAR", "Google", "OpenNeuroData",
+                   "CellMap Publications", "MICrONS", "FlyEM"}
+
+    def _pick_entry(self) -> DatasetEntry:
+        """Pick a dataset. Prefers fast repos and already-warmed datasets."""
+        fast = [r for r in self._by_repo if r in self._FAST_REPOS]
+        slow = [r for r in self._by_repo if r not in self._FAST_REPOS]
+
+        if self._balance_repositories:
+            if fast:
+                if slow and self._rng.random() < 0.2:
+                    repo = self._rng.choice(slow)
+                else:
+                    repo = self._rng.choice(fast)
+            else:
+                # No fast repos (fluorescence-only mode). Prefer warmed entries.
+                warmed = [e for e in self._datasets if e.id in self._scale_info]
+                if warmed:
+                    return self._rng.choice(warmed)
+                repo = self._rng.choice(list(self._by_repo.keys()))
+            return self._rng.choice(self._by_repo[repo])
+        else:
+            if fast:
+                fast_entries = [e for e in self._datasets if e.repository in self._FAST_REPOS]
+                slow_entries = [e for e in self._datasets if e.repository not in self._FAST_REPOS]
+                if slow_entries and self._rng.random() < 0.2:
+                    return self._rng.choice(slow_entries)
+                if fast_entries:
+                    return self._rng.choice(fast_entries)
+            else:
+                # No fast repos. Prefer warmed entries.
+                warmed = [e for e in self._datasets if e.id in self._scale_info]
+                if warmed:
+                    return self._rng.choice(warmed)
+            return self._rng.choice(self._datasets)
+
     def _fetch_one(self) -> CropSample | None:
         """Fetch a single random crop. Returns None on failure."""
-        if self._balance_repositories:
-            repo = self._rng.choice(list(self._by_repo.keys()))
-            entry = self._rng.choice(self._by_repo[repo])
-        else:
-            entry = self._rng.choice(self._datasets)
+        import time as _time
+        t0 = _time.time()
+
+        entry = self._pick_entry()
         backend = self._backends[entry.repository]
+        voxel_size_is_estimated = not backend.has_voxel_metadata(entry)
 
         try:
-            scale, src_vox, zoom_factors, _ = self._get_scale_info(entry)
-            offset = self._random_offset(entry)
-            read = self._clamp_read_shape(entry)
+            if voxel_size_is_estimated:
+                # No voxel size metadata — read crop_size voxels at scale 0,
+                # no resampling. We can't match a target resolution without
+                # knowing the source voxel size.
+                scale = 0
+                src_vox = (0.0, 0.0, 0.0)
+                zoom_factors = (1.0, 1.0, 1.0)
+                read = self.crop_size
+                # Still need the volume shape for offset bounds
+                vol_shape = backend.get_volume_shape(entry, 0)
+                max_z = max(0, vol_shape[0] - read[0])
+                max_y = max(0, vol_shape[1] - read[1])
+                max_x = max(0, vol_shape[2] - read[2])
+                offset = (
+                    self._rng.randint(0, max_z),
+                    self._rng.randint(0, max_y),
+                    self._rng.randint(0, max_x),
+                )
+            else:
+                t1 = _time.time()
+                scale, src_vox, zoom_factors, _ = self._get_scale_info(entry)
+                t2 = _time.time()
+                offset = self._random_offset(entry)
+                read = self._clamp_read_shape(entry)
+                print(f"  _fetch_one {entry.id}: scale_info={t2-t1:.1f}s", flush=True)
+
+            t3 = _time.time()
             raw = backend.read_raw_crop(entry, offset, read, scale)
+            t4 = _time.time()
+            print(f"  _fetch_one {entry.id}: read_raw={t4-t3:.1f}s voxel_known={not voxel_size_is_estimated}", flush=True)
         except Exception as e:
             print(f"  Skipping {entry.id} ({entry.repository}): {e}")
             return None
 
-        # Resample to target resolution
+        # Resample to target resolution (skipped when voxel size unknown)
         raw = self._resample(raw, zoom_factors, order=1)
 
         # Check nonempty raw requirement
         if self._require_nonempty_raw and not raw.any():
+            print(f"  _fetch_one {entry.id}: all-zero raw, retrying (total {_time.time()-t0:.1f}s)", flush=True)
             return None
 
         seg = None
@@ -316,13 +431,56 @@ class UnifiedLoader:
             if resolved:
                 raw_path = f"s3://janelia-cosem-datasets/{resolved}"
         if not raw_path:
-            raw_path = (entry.access_url + entry.raw_path) if entry.raw_path else entry.access_url
+            if entry.raw_path and ("://" in entry.raw_path):
+                raw_path = entry.raw_path
+            elif entry.raw_path:
+                raw_path = entry.access_url + entry.raw_path
+            else:
+                raw_path = entry.access_url
         if self.organelle and hasattr(backend, 'get_resolved_seg_path'):
             resolved = backend.get_resolved_seg_path(entry.id, self.organelle)
             if resolved:
                 seg_path = f"s3://janelia-cosem-datasets/{resolved}"
         if not seg_path and self.organelle and self.organelle in entry.segmentation_paths:
             seg_path = (entry.access_url + entry.segmentation_paths[self.organelle])
+
+        # Fetch multi-channel data for backends that have their own
+        # read_raw_crop_multichannel (BioImage, IDR). Skip for EM backends
+        # where the base class would just re-read single-channel data.
+        raw_multichannel = None
+        channel_names: list[str] = []
+        _has_mc = type(backend).read_raw_crop_multichannel is not Backend.read_raw_crop_multichannel
+        if _has_mc:
+            try:
+                t_mc = _time.time()
+                mc = backend.read_raw_crop_multichannel(entry, offset, read, scale)
+                print(f"  _fetch_one {entry.id}: read_multichannel={_time.time()-t_mc:.1f}s nch={mc.shape[0]}", flush=True)
+                if mc.shape[0] > 1:
+                    # Resample each channel independently
+                    if any(abs(z - 1.0) > 1e-6 for z in zoom_factors):
+                        ch_list = []
+                        for c in range(mc.shape[0]):
+                            ch_list.append(self._resample(mc[c], zoom_factors, order=1))
+                        raw_multichannel = np.stack(ch_list, axis=0)
+                    else:
+                        out = np.zeros((mc.shape[0],) + self.crop_size, dtype=mc.dtype)
+                        slices = tuple(
+                            slice(0, min(s, c))
+                            for s, c in zip(mc.shape[1:], self.crop_size)
+                        )
+                        out[(slice(None),) + slices] = mc[(slice(None),) + slices]
+                        raw_multichannel = out
+                    # Get channel names from entry or from backend metadata
+                    if entry.channel_names:
+                        channel_names = list(entry.channel_names)
+                    elif hasattr(backend, "get_channel_metadata"):
+                        try:
+                            meta = backend.get_channel_metadata(entry)
+                            channel_names = meta.get("channel_names", [])
+                        except Exception:
+                            pass
+            except Exception:
+                pass  # Fall back to single-channel only
 
         return CropSample(
             raw=raw,
@@ -331,12 +489,16 @@ class UnifiedLoader:
             repository=entry.repository,
             organelle=self.organelle,
             offset=offset,
-            resolution_nm=self.resolution_nm or src_vox,
+            # When voxel size is unknown, report (0,0,0) — don't pretend
+            resolution_nm=(0.0, 0.0, 0.0) if voxel_size_is_estimated else (self.resolution_nm or src_vox),
             source_resolution_nm=src_vox,
             scale_used=scale,
             seg_status=seg_status,
             raw_path=raw_path,
             seg_path=seg_path,
+            voxel_size_is_estimated=voxel_size_is_estimated,
+            raw_multichannel=raw_multichannel,
+            channel_names=channel_names,
         )
 
     def __iter__(self) -> Iterator[CropSample]:
@@ -380,7 +542,11 @@ class UnifiedLoader:
         return list(self._datasets)
 
     def summary(self) -> str:
-        """Return a human-readable summary of what this loader will do."""
+        """Return a human-readable summary of what this loader will do.
+
+        Only shows voxel size info for datasets already in the cache (from
+        prewarm). Avoids triggering slow network calls for every dataset.
+        """
         res_str = f"{self.resolution_nm} nm" if self.resolution_nm else "native"
         lines = [
             f"UnifiedLoader: {self.num_samples} crops of {self.crop_size} at {res_str}",
@@ -390,10 +556,14 @@ class UnifiedLoader:
         for entry in self._datasets:
             seg_flag = " [+seg]" if entry.has_segmentation else " [raw only]"
             try:
-                scale, src_vox, zoom_factors, read_shape = self._get_scale_info(entry)
-                vox_str = f"  native@s{scale}: {src_vox[0]:.1f}x{src_vox[1]:.1f}x{src_vox[2]:.1f}nm"
-                if any(abs(z - 1.0) > 1e-6 for z in zoom_factors):
-                    vox_str += f" → resample {zoom_factors[0]:.2f}x"
+                # Only show voxel info if already cached — don't trigger network calls
+                if entry.id in self._scale_info:
+                    scale, src_vox, zoom_factors, read_shape = self._scale_info[entry.id]
+                    vox_str = f"  native@s{scale}: {src_vox[0]:.1f}x{src_vox[1]:.1f}x{src_vox[2]:.1f}nm"
+                    if any(abs(z - 1.0) > 1e-6 for z in zoom_factors):
+                        vox_str += f" → resample {zoom_factors[0]:.2f}x"
+                else:
+                    vox_str = ""
             except Exception:
                 vox_str = ""
             lines.append(f"    - {entry.id} ({entry.repository}){seg_flag}{vox_str}")

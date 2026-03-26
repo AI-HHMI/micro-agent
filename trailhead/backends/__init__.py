@@ -5,6 +5,7 @@ from trailhead.backends.openorganelle import OpenOrganelleBackend
 from trailhead.backends.microns import MICrONSBackend
 from trailhead.backends.empiar import EMPIARBackend
 from trailhead.backends.idr import IDRBackend
+from trailhead.backends.bioimage import BioImageBackend
 
 __all__ = [
     "Backend",
@@ -12,4 +13,5 @@ __all__ = [
     "MICrONSBackend",
     "EMPIARBackend",
     "IDRBackend",
+    "BioImageBackend",
 ]

@@ -1,8 +1,10 @@
 # Trailhead
 
-Cross-repository microscopy training data discovery and loading. Trailhead provides a unified interface to query, load, and visualize EM datasets from multiple public repositories, yielding random crops at a target resolution suitable for training segmentation models.
+Cross-repository microscopy training data discovery and loading. Trailhead provides a unified interface to query, load, and visualize EM and fluorescence datasets from multiple public repositories, yielding random crops at a target resolution suitable for training segmentation models.
 
 ## Repositories
+
+### Curated (always available)
 
 | Repository | Format | Backend | Datasets |
 |---|---|---|---|
@@ -15,6 +17,19 @@ Cross-repository microscopy training data discovery and loading. Trailhead provi
 | **IDR** | OME-Zarr on EBI S3 | `IDRBackend` | 1 |
 | **CellMap Publications** | N5 on S3 | `OpenOrganelleBackend` | 1 (Heinrich 2021 ground truth crops) |
 
+### Discovered (via `pixi run discover`)
+
+| Repository | Modality | Format | Data access | Source |
+|---|---|---|---|---|
+| **OpenOrganelle** | EM | N5 on S3 | Random-access crops | S3 bucket scan |
+| **EMPIAR** | EM | TIFF | Catalog only | REST API probe |
+| **IDR** | Fluorescence / EM | OME-Zarr on EBI S3 | Random-access (plate zarr) | OMERO API drill-down |
+| **BioImage Archive** | EM / Fluorescence | Various | Catalog only | BioStudies API search |
+| **Allen Institute** | Fluorescence | OME-TIFF on S3 | Random-access crops | S3 bucket scan |
+| **Human Protein Atlas** | Fluorescence | TIFF | Catalog only | HPA subcellular API |
+| **Cell Image Library** | Fluorescence / EM | TIFF | Catalog only | CIL JSON API |
+| **Zenodo** | Fluorescence / EM | Various | Catalog only | Zenodo REST API |
+
 ## Quick start
 
 ```bash
@@ -26,10 +41,12 @@ pixi run demo
 
 # Open the web explorer
 pixi run explore
-# → http://ackermand-ws2:9000/
 
-# View a single crop in neuroglancer
-pixi run view
+# Discover datasets from public repositories
+pixi run discover
+
+# Run LLM-driven discovery agent
+pixi run discover-agent --focus "light-sheet fluorescence"
 ```
 
 ## Python API
@@ -43,6 +60,7 @@ The `UnifiedLoader` is the single entry point for all data access. Any external 
 | `organelle` | `str` | `""` | Target organelle for segmentation (e.g., `"mito"`, `"er"`, `"neuron"`) |
 | `crop_size` | `(z, y, x)` | `(64, 64, 64)` | Output crop size in voxels |
 | `resolution_nm` | `(z, y, x)` or `None` | `None` | Target voxel size in nm. Auto-selects best scale and resamples. `None` = native resolution. |
+| `modality_class` | `str` | `""` | Filter by modality: `"em"`, `"fluorescence"`, or `""` for both |
 | `query` | `str` | `""` | Free-text search across dataset titles and IDs |
 | `organism` | `str` | `""` | Filter by organism (e.g., `"Homo sapiens"`, `"Drosophila melanogaster"`) |
 | `cell_type` | `str` | `""` | Filter by cell type (e.g., `"HeLa"`) |
@@ -60,8 +78,10 @@ Each yielded `CropSample` contains everything needed to use the crop or trace it
 
 | Field | Type | Description |
 |---|---|---|
-| `raw` | `ndarray (z,y,x) uint8` | Raw EM image crop, resampled to target resolution |
+| `raw` | `ndarray (z,y,x)` | Raw image crop at native dtype, resampled to target resolution |
 | `segmentation` | `ndarray (z,y,x) uint32` or `None` | Segmentation labels (instance IDs, not binary masks) |
+| `raw_multichannel` | `ndarray (c,z,y,x)` or `None` | Multi-channel data at native dtype (fluorescence datasets) |
+| `channel_names` | `list[str]` | Channel names (e.g., `["DAPI", "GFP", "Cell membrane"]`) |
 | `dataset_id` | `str` | Dataset identifier (e.g., `"jrc_hela-2"`, `"minnie65"`) |
 | `repository` | `str` | Source repository name |
 | `organelle` | `str` | Organelle that was requested |
@@ -92,6 +112,19 @@ for sample in loader.prefetch_iter():
     # sample.raw: (64, 64, 64) uint8 at 8nm isotropic
     # sample.segmentation: (64, 64, 64) uint32 instance labels
     train(sample.raw, sample.segmentation)
+```
+
+**EM-only or fluorescence-only crops:**
+
+```python
+# Only EM datasets
+loader = UnifiedLoader(modality_class="em", crop_size=(64, 64, 64))
+
+# Only fluorescence datasets
+loader = UnifiedLoader(modality_class="fluorescence", crop_size=(64, 64, 64))
+for sample in loader:
+    if sample.raw_multichannel is not None:
+        print(f"Channels: {sample.channel_names}, shape: {sample.raw_multichannel.shape}")
 ```
 
 **Crops from a specific dataset:**
@@ -151,10 +184,11 @@ from trailhead import Registry
 
 reg = Registry()
 
-# Filter by organelle, organism, repository
+# Filter by organelle, organism, repository, modality
 hits = reg.search(organelle="mito", organism="Homo sapiens")
 hits = reg.search(repository="FlyEM")
 hits = reg.search(query="cortex", has_segmentation=True)
+hits = reg.search(modality_class="fluorescence")
 
 # List available metadata
 reg.list_organelles()    # ['er', 'golgi', 'mito', 'neuron', ...]
@@ -179,6 +213,7 @@ viewer = view_crop(sample)
 
 `pixi run explore` starts a local web server with:
 
+- **Modality filter** -- EM only, fluorescence only, or both
 - **Control panel** -- organelle, resolution (nm), crop size, repository filters
 - **Options** -- require segmentation, balance across repos, require nonzero raw/seg
 - **Embedded neuroglancer** viewer with 1-99% intensity scaling and segment ID listing
@@ -189,6 +224,113 @@ viewer = view_crop(sample)
 
 The server binds to `0.0.0.0` so it's accessible from other machines on the network.
 
+## Dataset discovery
+
+`pixi run discover` scans 8 public repositories in parallel and outputs a `discovered_datasets.json` file. The Registry auto-loads this file on startup, making discovered datasets immediately available to the loader and web explorer.
+
+### Architecture
+
+Discovery uses a scanner module system (`trailhead/scanners/`). Each scanner implements `BaseScanner` with two methods:
+
+- `scan(limit)` — async method that queries the source API and returns `DiscoveredDataset` entries
+- `validate_access(dataset)` — async method that checks whether the data is actually reachable
+
+All 8 scanners run concurrently via `asyncio.gather()`. The total discovery time is bounded by the slowest scanner, not the sum.
+
+### Scanners in detail
+
+**OpenOrganelle** (`scanners/openorganelle.py`) — Lists `s3://janelia-cosem-datasets` via s3fs, then for each dataset probes `{id}/{id}.n5/em/` for raw EM data and `{id}/{id}.n5/labels/*_seg` for segmentation labels. Extracts organelle names from directory names. All datasets get `supports_random_access=True` with resolved N5 paths.
+
+**EMPIAR** (`scanners/empiar.py`) — No list-all API endpoint exists, so this scanner probes individual entry IDs (11000 downward) via `https://www.ebi.ac.uk/empiar/api/entry/{id}/`. Extracts titles, organisms, and imaging modalities. Catalog-only (no FTP data paths resolved).
+
+**IDR** (`scanners/idr.py`) — Queries the OMERO JSON API for screens and projects. For screens, resolves actual OME-Zarr data paths by drilling through the API hierarchy:
+
+1. `GET /api/v0/m/screens/` → list screens (uses `@id` and `Name` fields)
+2. Extract study prefix from screen name (e.g., `idr0001-graml-sysgro/screenA` → `idr0001A`)
+3. `GET /webclient/api/plates/?id={screen_id}` → get plate IDs
+4. `GET` plate `.zattrs` on EBI S3 → find first well path
+5. `GET` well `.zattrs` → find first image/field path
+6. Verify the full zarr path exists: `idr/zarr/v0.4/{study_prefix}/{plate_id}.zarr/{well}/{field}`
+
+Only screens with verified plate zarrs on EBI S3 get `supports_random_access=True`. Projects are catalog-only. Modality is classified by keyword matching in descriptions (fluorescence, confocal, light sheet, GFP, DAPI, FITC → fluorescence).
+
+**BioImage Archive** (`scanners/bia.py`) — Searches the BioStudies API with both EM and fluorescence queries. Catalog-only (only landing page URLs).
+
+**Allen Institute** (`scanners/allen.py`) — Two sub-scanners:
+- *Cell Explorer*: Lists `s3://allencell/aics/` via s3fs, walks each package directory looking for OME-TIFF files (`.ome.tif`, `.ome.tiff`, `.tiff`, `.tif`). Datasets with resolved TIFF paths get `supports_random_access=True` and are readable via `BioImageBackend` (requires `bioio`). First open takes ~5s (downloading TIFF header), subsequent reads are cached.
+- *Brain Observatory*: Queries Allen Brain Map API for two-photon calcium imaging datasets. Catalog-only (NWB format not yet supported).
+
+**Human Protein Atlas** (`scanners/hpa.py`) — Queries the HPA subcellular location API. Populates channel metadata (DAPI, microtubules, ER, protein of interest) with wavelengths and fluorophore names. Catalog-only (HPA only serves JPEG thumbnails publicly; raw TIFFs require direct contact).
+
+**Cell Image Library** (`scanners/cell_image_lib.py`) — Searches CIL JSON API with fluorescence and EM queries. Uses `verify=False` for SSL issues. Catalog-only.
+
+**Zenodo** (`scanners/zenodo.py`) — Searches Zenodo REST API for microscopy dataset records. Detects data formats from file extensions. Uses `follow_redirects=True` (API returns 301). Catalog-only.
+
+### EM vs fluorescence classification
+
+Each dataset gets a `modality_class` field: `"em"`, `"fluorescence"`, or `""` (unknown).
+
+**Curated datasets**: All hardcoded entries are explicitly tagged `modality_class="em"` (OpenOrganelle, EMPIAR, FlyEM, Google, OpenNeuroData, CellMap Publications).
+
+**Discovered datasets**: Classification depends on the scanner:
+- *Hardcoded per scanner*: OpenOrganelle → `"em"`, EMPIAR → `"em"`, Allen → `"fluorescence"`, HPA → `"fluorescence"`
+- *Keyword-based*: IDR, BioImage Archive, Cell Image Library, and Zenodo classify by searching dataset descriptions and titles for modality keywords (e.g., "fluorescence", "confocal", "GFP", "DAPI" → fluorescence; "electron microscopy" → EM)
+
+### Data access levels
+
+Not all discovered datasets are directly loadable. The `supports_random_access` flag distinguishes:
+
+| Level | Description | Example |
+|---|---|---|
+| **Random-access** | Loader can stream crops directly from cloud storage | OpenOrganelle N5, Allen OME-TIFF, IDR plate zarr |
+| **Catalog-only** | Metadata in registry, but data requires download or is in an unsupported format | EMPIAR, HPA, Zenodo, CIL |
+
+### Validation
+
+`trailhead/validate.py` provides `validate_dataset()` which checks URL reachability and metadata sanity. Each dataset carries a `validation_status` field: `"verified"`, `"failed"`, or `"pending"`.
+
+### Output
+
+```
+Discovery agent starting (all sources)...
+
+  [OpenOrganelle] Found 28 datasets
+  [EMPIAR] Found 45 datasets
+  [IDR] Found 50 datasets
+  [BioImage Archive] Found 50 datasets
+  [Allen] Found 40 datasets
+  [HPA] Found 50 datasets
+  [CellImageLibrary] Found 0 datasets
+  [Zenodo] Found 50 datasets
+
+Total discovered: 263 datasets
+  EM: 125  |  Fluorescence: 138  |  Other: 0
+  With segmentations: 11
+
+Results saved to discovered_datasets.json
+```
+
+### Agentic discovery
+
+`pixi run discover-agent` runs an LLM-driven discovery loop (`trailhead/agent/`) that goes beyond static API queries. The agent uses tool-calling to:
+
+1. Plan which sources to search and what queries to run
+2. Execute scanner tools based on its plan
+3. Optionally web-search for papers or announcements about new datasets
+4. Validate accessibility for each candidate
+5. Deduplicate against the existing registry
+6. Save results with validation status
+
+The LLM backend is selectable: Anthropic SDK (Claude) or any OpenAI-compatible API via litellm. Configure via environment variables:
+
+```bash
+export TRAILHEAD_LLM_PROVIDER=anthropic  # or "litellm"
+export TRAILHEAD_LLM_MODEL=claude-sonnet-4-20250514
+export ANTHROPIC_API_KEY=sk-...
+
+pixi run discover-agent --focus "recent light-sheet zebrafish datasets"
+```
+
 ## Project structure
 
 ```
@@ -198,55 +340,34 @@ trailhead/
   loader.py                # UnifiedLoader (resolution-aware crop iterator)
   app.py                   # Web explorer (tornado + neuroglancer iframe)
   visualize.py             # Neuroglancer helpers (view_crop, view_arrays)
-  discover.py              # Dataset auto-discovery agent
+  discover.py              # Discovery entry point + DiscoveredDataset schema
+  validate.py              # Dataset accessibility validation
   backends/
     base.py                # Backend ABC (get_voxel_size, pick_scale, read crops)
     openorganelle.py       # Zarr-first + N5 fallback, multi-bucket S3
     microns.py             # Neuroglancer precomputed on GCS/S3 (HTTPS for GCS)
     empiar.py              # On-demand TIFF slice download via HTTPS
     idr.py                 # OME-Zarr on EBI S3
+    bioimage.py            # OME-TIFF, CZI, LIF, ND2 via bioio
+  scanners/
+    __init__.py            # Exports all scanners + run_all_scanners()
+    base.py                # BaseScanner ABC
+    openorganelle.py       # S3 bucket scan for N5 datasets
+    empiar.py              # REST API probe for EM entries
+    idr.py                 # OMERO API → plate zarr resolution
+    bia.py                 # BioStudies API search
+    allen.py               # Allen Cell S3 scan + Brain Observatory API
+    hpa.py                 # Human Protein Atlas subcellular API
+    cell_image_lib.py      # Cell Image Library JSON API
+    zenodo.py              # Zenodo REST API search
+  agent/
+    __init__.py            # Exports DiscoveryAgent
+    llm.py                 # LLM abstraction (Anthropic + OpenAI-compatible)
+    tools.py               # Tool definitions for the agent
+    discovery_agent.py     # Main agent loop + CLI entry point
   catalog/
     openorganelle.json     # 51 datasets from s3://janelia-cosem-datasets
     microns.json           # MICrONS minnie65/35
-```
-
-## Dataset discovery
-
-`pixi run discover` runs an automated discovery agent (`trailhead/discover.py`) that scans multiple public repositories for datasets, extracts metadata, and outputs a `discovered_datasets.json` file with entries ready for the Registry to load.
-
-### How it works
-
-The agent runs four scanning strategies in sequence:
-
-1. **OpenOrganelle S3 scan** — Lists all top-level directories in `s3://janelia-cosem-datasets`, then for each dataset checks `{id}/{id}.n5/em/` for raw EM data and `{id}/{id}.n5/labels/` for segmentation labels. Automatically extracts organelle names from `*_seg` directory names.
-
-2. **EMPIAR API scan** — Queries the [EMPIAR REST API](https://www.ebi.ac.uk/empiar/api/entries/) for recent entries, extracting dataset IDs, titles, organisms, and imaging modalities.
-
-3. **IDR scan** — Queries the [IDR screens API](https://idr.openmicroscopy.org/api/v0/) for datasets available as OME-Zarr.
-
-4. **BioImage Archive scan** — Searches the [BioStudies API](https://www.ebi.ac.uk/biostudies/api/v1/search) for studies matching "electron microscopy segmentation".
-
-Each discovered dataset is saved as a `DiscoveredDataset` with fields matching the `DatasetEntry` schema (id, repository, title, organism, organelles, access_url, raw_path, segmentation_paths, provenance). The results are written to `discovered_datasets.json` which can be reviewed and merged into the catalog JSONs.
-
-### Output
-
-```
-Discovery agent starting...
-
-[1/4] Scanning OpenOrganelle S3 bucket...
-  Found 51 datasets (14 with segmentations)
-[2/4] Scanning EMPIAR API...
-  Found 50 entries
-[3/4] Scanning IDR...
-  Found 20 entries
-[4/4] Scanning BioImage Archive...
-  Found 20 entries
-
-Total discovered: 141 datasets
-  With segmentations: 14
-  Raw only: 127
-
-Results saved to discovered_datasets.json
 ```
 
 ## Pixi tasks
@@ -254,10 +375,14 @@ Results saved to discovered_datasets.json
 | Task | Command | Description |
 |---|---|---|
 | `demo` | `pixi run demo` | Search registry for mito datasets |
-| `view` | `pixi run view` | Load one crop in neuroglancer |
 | `explore` | `pixi run explore` | Web explorer with controls + viewer |
-| `discover` | `pixi run discover` | Scan repos for new datasets |
+| `discover` | `pixi run discover` | Scan all repos for new datasets |
+| `discover-agent` | `pixi run discover-agent` | LLM-driven discovery loop |
 
 ## Dependencies
 
-numpy, scipy, tensorstore, zarr, s3fs, httpx, neuroglancer
+**Core**: numpy, scipy, tensorstore, zarr, s3fs, httpx, neuroglancer
+
+**Optional**:
+- `fluorescence`: bioio, bioio-ome-tiff, bioio-czi, bioio-lif, bioio-nd2
+- `agent`: anthropic, litellm (<1.81)

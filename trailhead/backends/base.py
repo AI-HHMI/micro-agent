@@ -30,8 +30,8 @@ class Backend(ABC):
         offset: tuple[int, int, int],
         shape: tuple[int, int, int],
         scale: int = 0,
-    ) -> NDArray[np.uint8]:
-        """Read a 3D crop from the raw EM volume."""
+    ) -> NDArray:
+        """Read a 3D crop from the raw volume at native dtype."""
         ...
 
     @abstractmethod
@@ -42,9 +42,13 @@ class Backend(ABC):
         offset: tuple[int, int, int],
         shape: tuple[int, int, int],
         scale: int = 0,
-    ) -> NDArray[np.uint8]:
+    ) -> NDArray:
         """Read a 3D crop from a segmentation label volume."""
         ...
+
+    # Sentinel default used when no voxel size metadata is found.
+    # Deliberately not 8nm (common EM value) so it's clear when it's a guess.
+    _DEFAULT_VOXEL_NM = (10.0, 10.0, 10.0)
 
     def get_voxel_size(self, entry: DatasetEntry, scale: int = 0) -> tuple[float, float, float]:
         """Return (z, y, x) voxel size in nm at the given scale level.
@@ -52,12 +56,25 @@ class Backend(ABC):
         Default implementation uses entry.voxel_size_nm with 2x per scale level.
         Subclasses should override to read from volume metadata.
         """
-        if entry.voxel_size_nm and len(entry.voxel_size_nm) >= 3:
+        if entry.voxel_size_nm and len(entry.voxel_size_nm) >= 3 and any(v > 0 for v in entry.voxel_size_nm[:3]):
             base = entry.voxel_size_nm[:3]
         else:
-            base = [8.0, 8.0, 8.0]
+            base = list(self._DEFAULT_VOXEL_NM)
         factor = 2 ** scale
         return (base[0] * factor, base[1] * factor, base[2] * factor)
+
+    def has_voxel_metadata(self, entry: DatasetEntry) -> bool:
+        """Check if real voxel size metadata exists for this entry.
+
+        Subclasses that read voxel sizes from file metadata should override.
+        Returns True if the voxel size returned by get_voxel_size came from
+        real metadata, not defaults.
+        """
+        return bool(
+            entry.voxel_size_nm
+            and len(entry.voxel_size_nm) >= 3
+            and any(v > 0 for v in entry.voxel_size_nm[:3])
+        )
 
     def get_num_scales(self, entry: DatasetEntry) -> int:
         """Return the number of available scale levels.
@@ -87,6 +104,25 @@ class Backend(ABC):
                 break
         return best
 
+    def read_raw_crop_multichannel(
+        self,
+        entry: DatasetEntry,
+        offset: tuple[int, int, int],
+        shape: tuple[int, int, int],
+        scale: int = 0,
+        channels: list[int] | None = None,
+    ) -> NDArray:
+        """Read a multi-channel 3D crop. Returns array of shape (C, Z, Y, X).
+
+        Default implementation wraps read_raw_crop for single-channel backends.
+        Fluorescence backends should override to return all channels at native dtype.
+        """
+        data = self.read_raw_crop(entry, offset, shape, scale)
+        result = data[np.newaxis, ...]  # (1, Z, Y, X)
+        if channels is not None:
+            result = result[channels]
+        return result
+
     def read_crop(
         self,
         entry: DatasetEntry,
@@ -94,7 +130,7 @@ class Backend(ABC):
         offset: tuple[int, int, int],
         shape: tuple[int, int, int],
         scale: int = 0,
-    ) -> tuple[NDArray[np.uint8], NDArray[np.uint8]]:
+    ) -> tuple[NDArray, NDArray]:
         """Read both raw and segmentation crops."""
         raw = self.read_raw_crop(entry, offset, shape, scale)
         seg = self.read_segmentation_crop(entry, organelle, offset, shape, scale)

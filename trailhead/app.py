@@ -50,28 +50,115 @@ _ng_port = 9001
 _crop_count = 0
 
 
+import re as _re
+
+def _glsl_name(name: str, fallback: str) -> str:
+    """Sanitize a channel name into a valid GLSL / neuroglancer invlerp name."""
+    # Remove or replace non-alphanumeric characters
+    clean = _re.sub(r"[^a-zA-Z0-9_]", "_", name)
+    # Strip leading underscores/digits
+    clean = clean.lstrip("_0123456789")
+    # Collapse multiple underscores
+    clean = _re.sub(r"_+", "_", clean).strip("_")
+    return clean.lower() or fallback
+
+
 def _update_viewer(sample: CropSample) -> None:
     """Push a new crop into the neuroglancer viewer."""
-    vox = sample.resolution_nm if any(v > 0 for v in sample.resolution_nm) else (8.0, 8.0, 8.0)
-    cs = neuroglancer.CoordinateSpace(names=["z", "y", "x"], units=["nm", "nm", "nm"], scales=list(vox))
+    if any(v > 0 for v in sample.resolution_nm):
+        vox = sample.resolution_nm
+        vox_units = ["nm", "nm", "nm"]
+    else:
+        # Unknown voxel size — display in pixel units
+        vox = (1.0, 1.0, 1.0)
+        vox_units = ["", "", ""]
 
-    # Compute 1-99% intensity range for raw
-    p1, p99 = float(np.percentile(sample.raw, 1)), float(np.percentile(sample.raw, 99))
-    if p1 == p99:
-        p99 = p1 + 1  # avoid zero-range
+    mc = sample.raw_multichannel  # (C, Z, Y, X) or None
 
     with _viewer.txn() as s:
         s.layers.clear()
-        s.layers["raw"] = neuroglancer.ImageLayer(
-            source=neuroglancer.LocalVolume(data=sample.raw, dimensions=cs),
-            shader=f"#uicontrol invlerp normalized(range=[{p1:.0f}, {p99:.0f}])\nvoid main() {{\n  emitGrayscale(normalized());\n}}",
-        )
+
+        if mc is not None and mc.shape[0] > 1:
+            # Multi-channel: display as RGB in neuroglancer
+            # Transpose from (C, Z, Y, X) → (Z, Y, X, C) for neuroglancer channel dim
+            mc_data = np.transpose(mc, (1, 2, 3, 0))
+            cs_mc = neuroglancer.CoordinateSpace(
+                names=["z", "y", "x", "c^"],
+                units=[*vox_units, ""],
+                scales=[vox[0], vox[1], vox[2], 1],
+            )
+
+            nch = mc.shape[0]
+            n_display = min(nch, 3)
+
+            # Build sanitized unique channel names for invlerp controls
+            ch_names = []
+            seen: set[str] = set()
+            for ci in range(n_display):
+                raw = sample.channel_names[ci] if ci < len(sample.channel_names) else f"ch{ci}"
+                name = _glsl_name(raw, f"ch{ci}")
+                while name in seen:
+                    name = f"{name}{ci}"
+                seen.add(name)
+                ch_names.append(name)
+
+            # Compute per-channel 1-99% ranges
+            shader_lines = []
+            for ci in range(n_display):
+                ch_data = mc[ci]
+                p1 = float(np.percentile(ch_data, 1))
+                p99 = float(np.percentile(ch_data, 99))
+                if p1 == p99:
+                    p99 = p1 + 1
+                shader_lines.append(
+                    f"#uicontrol invlerp {ch_names[ci]}(range=[{p1:.0f}, {p99:.0f}])"
+                )
+
+            # Build main() using invlerp(getDataValue(channel))
+            if n_display >= 3:
+                shader_lines.append("")
+                shader_lines.append("void main() {")
+                shader_lines.append("  emitRGB(vec3(")
+                shader_lines.append(f"    {ch_names[0]}(getDataValue(0)),")
+                shader_lines.append(f"    {ch_names[1]}(getDataValue(1)),")
+                shader_lines.append(f"    {ch_names[2]}(getDataValue(2))");
+                shader_lines.append("  ));")
+                shader_lines.append("}")
+            elif n_display == 2:
+                shader_lines.append("")
+                shader_lines.append("void main() {")
+                shader_lines.append(f"  float a = {ch_names[0]}(getDataValue(0));")
+                shader_lines.append(f"  float b = {ch_names[1]}(getDataValue(1));")
+                shader_lines.append("  emitRGB(vec3(b, a, b));")  # green + magenta
+                shader_lines.append("}")
+
+            shader = "\n".join(shader_lines)
+            s.layers["raw"] = neuroglancer.ImageLayer(
+                source=neuroglancer.LocalVolume(data=mc_data, dimensions=cs_mc),
+                shader=shader,
+            )
+        else:
+            # Single-channel: grayscale
+            cs = neuroglancer.CoordinateSpace(
+                names=["z", "y", "x"], units=vox_units, scales=list(vox),
+            )
+            p1, p99 = float(np.percentile(sample.raw, 1)), float(np.percentile(sample.raw, 99))
+            if p1 == p99:
+                p99 = p1 + 1
+            s.layers["raw"] = neuroglancer.ImageLayer(
+                source=neuroglancer.LocalVolume(data=sample.raw, dimensions=cs),
+                shader=f"#uicontrol invlerp normalized(range=[{p1:.0f}, {p99:.0f}])\nvoid main() {{\n  emitGrayscale(normalized());\n}}",
+            )
+
         if sample.segmentation is not None:
+            cs_seg = neuroglancer.CoordinateSpace(
+                names=["z", "y", "x"], units=vox_units, scales=list(vox),
+            )
             seg_data = sample.segmentation.astype(np.uint32)
             seg_ids = [int(v) for v in np.unique(seg_data) if v != 0]
             name = (sample.organelle or "seg") + "_seg"
             s.layers[name] = neuroglancer.SegmentationLayer(
-                source=neuroglancer.LocalVolume(data=seg_data, dimensions=cs),
+                source=neuroglancer.LocalVolume(data=seg_data, dimensions=cs_seg),
                 segments=seg_ids,
                 selected_alpha=0.3,
             )
@@ -79,6 +166,7 @@ def _update_viewer(sample: CropSample) -> None:
 
 
 def _sample_to_dict(sample: CropSample) -> dict:
+    nch = sample.raw_multichannel.shape[0] if sample.raw_multichannel is not None else 1
     return {
         "dataset_id": sample.dataset_id,
         "repository": sample.repository,
@@ -94,6 +182,9 @@ def _sample_to_dict(sample: CropSample) -> dict:
         "raw_min": int(sample.raw.min()),
         "raw_max": int(sample.raw.max()),
         "seg_ids": sorted(int(v) for v in np.unique(sample.segmentation) if v != 0) if sample.segmentation is not None else [],
+        "voxel_size_is_estimated": sample.voxel_size_is_estimated,
+        "num_channels": nch,
+        "channel_names": sample.channel_names,
     }
 
 
@@ -167,6 +258,7 @@ class LoadHandler(_JsonHandler):
                 balance_repositories=body.get("balance_repositories", True),
                 require_nonempty_raw=body.get("require_nonempty_raw", False),
                 require_nonempty_seg=body.get("require_nonempty_seg", False),
+                modality_class=body.get("modality_class", ""),
             )
             _loader = result["loader"]
             _loader_iter = iter(_loader)
@@ -198,11 +290,17 @@ class LoadHandler(_JsonHandler):
 
 def _create_loader(**kwargs):
     """Run in thread pool — creates a UnifiedLoader (may do network I/O)."""
+    import time
+    t0 = time.time()
     loader = UnifiedLoader(num_samples=10000, **kwargs)
+    log.info("UnifiedLoader created in %.1fs (%d datasets)", time.time() - t0, len(loader.datasets))
+    t1 = time.time()
+    summary = loader.summary()
+    log.info("loader.summary() in %.1fs", time.time() - t1)
     return {
         "loader": loader,
         "num_datasets": len(loader.datasets),
-        "summary": loader.summary(),
+        "summary": summary,
     }
 
 
@@ -247,8 +345,10 @@ def _prefetch_worker():
 
     Only this thread calls next(_loader_iter), so no lock needed.
     """
+    import time
     log.info("Prefetch worker started")
     while not _prefetch_stop.is_set():
+        t0 = time.time()
         try:
             sample = next(_loader_iter)
         except StopIteration:
@@ -257,9 +357,12 @@ def _prefetch_worker():
             return
 
         if sample is not None:
+            elapsed = time.time() - t0
             _prefetch_q.put(sample)  # blocks if queue is full (5 items)
-            log.info("Prefetched: %s (%s) [queue ~%d]",
-                     sample.dataset_id, sample.repository, _prefetch_q.qsize())
+            log.info("Prefetched: %s (%s) in %.1fs [queue ~%d]",
+                     sample.dataset_id, sample.repository, elapsed, _prefetch_q.qsize())
+        else:
+            log.info("Prefetch: _fetch_one returned None (retry) in %.1fs", time.time() - t0)
     log.info("Prefetch worker stopped")
 
 
@@ -542,6 +645,16 @@ HTML_PAGE = r"""<!DOCTYPE html>
 </header>
 
 <div class="sidebar">
+  <!-- Modality -->
+  <div class="ctrl-section">
+    <div class="ctrl-label">Modality</div>
+    <select id="modality">
+      <option value="">All (EM + fluorescence)</option>
+      <option value="em">EM only</option>
+      <option value="fluorescence">Fluorescence only</option>
+    </select>
+  </div>
+
   <!-- Organelle -->
   <div class="ctrl-section">
     <div class="ctrl-label">Organelle</div>
@@ -586,7 +699,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
       <span>Balance across repos</span>
     </div>
     <div class="checkbox-row">
-      <input type="checkbox" id="require-nonempty-raw">
+      <input type="checkbox" id="require-nonempty-raw" checked>
       <span>Require nonzero raw</span>
     </div>
     <div class="checkbox-row">
@@ -619,6 +732,9 @@ HTML_PAGE = r"""<!DOCTYPE html>
 
 <div class="viewer-area">
   <div class="meta-bar" id="meta-bar">
+    <div id="voxel-warning" style="display:none; background:rgba(255,107,107,0.12); border:1px solid rgba(255,107,107,0.4); border-radius:3px; padding:4px 8px; color:var(--red); font-size:10px; line-height:1.4;">
+      No voxel size metadata found in file — showing raw voxels at native size, no resampling applied.
+    </div>
     <div class="meta-row" id="meta-row-1"></div>
     <div class="meta-row" id="meta-row-2"></div>
     <div class="meta-row" id="meta-row-3"></div>
@@ -707,6 +823,7 @@ async function doLoad() {
   const repos = [...document.querySelectorAll('#repo-checks input:checked')].map(c => c.value);
 
   const body = {
+    modality_class: document.getElementById('modality').value,
     organelle: document.getElementById('organelle').value,
     resolution_nm: [
       parseFloat(document.getElementById('res-z').value),
@@ -783,19 +900,37 @@ async function doNext() {
     const mb = document.getElementById('meta-bar');
     mb.classList.add('visible');
 
+    // Voxel size warning
+    const voxWarnEl = document.getElementById('voxel-warning');
+    voxWarnEl.style.display = data.voxel_size_is_estimated ? 'block' : 'none';
+
     const segClass = data.seg_status === 'loaded' ? 'good'
                    : data.seg_status === 'empty' ? 'warn'
                    : data.seg_status.startsWith('failed') ? 'bad' : '';
 
+    const chInfo = data.num_channels > 1
+      ? `<span><span class="meta-key">channels:</span> <span class="meta-val">${data.num_channels} (${data.channel_names.join(', ') || 'RGB'})</span></span>`
+      : '';
     document.getElementById('meta-row-1').innerHTML = `
       <span><span class="meta-key">dataset:</span> <span class="meta-val">${data.dataset_id}</span></span>
       <span><span class="meta-key">repo:</span> <span class="meta-val">${data.repository}</span></span>
       <span><span class="meta-key">crop #</span> <span class="meta-val">${data.crop_number}</span></span>
+      ${chInfo}
       <span><span class="meta-key">seg:</span> <span class="meta-val ${segClass}">${data.seg_status}</span></span>
     `;
+    // Resolution display — handle unknown voxel size
+    const voxUnknown = data.voxel_size_is_estimated;
+    let resText, srcText;
+    if (voxUnknown) {
+      resText = `<span class="meta-val bad">unknown (raw voxels)</span>`;
+      srcText = `<span class="meta-val bad">unknown</span>`;
+    } else {
+      resText = `<span class="meta-val">${data.resolution_nm.join(' x ')} nm</span>`;
+      srcText = `<span class="meta-val">${data.source_resolution_nm.join(' x ')} nm @ s${data.scale_used}</span>`;
+    }
     document.getElementById('meta-row-2').innerHTML = `
-      <span><span class="meta-key">resolution:</span> <span class="meta-val">${data.resolution_nm.join(' x ')} nm</span></span>
-      <span><span class="meta-key">source:</span> <span class="meta-val">${data.source_resolution_nm.join(' x ')} nm @ s${data.scale_used}</span></span>
+      <span><span class="meta-key">resolution:</span> ${resText}</span>
+      <span><span class="meta-key">source:</span> ${srcText}</span>
       <span><span class="meta-key">offset:</span> <span class="meta-val">(${data.offset.join(', ')})</span></span>
       <span><span class="meta-key">shape:</span> <span class="meta-val">${data.raw_shape.join(' x ')}</span></span>
       <span><span class="meta-key">range:</span> <span class="meta-val">[${data.raw_min}, ${data.raw_max}]</span></span>
@@ -878,6 +1013,21 @@ def serve(port: int = 9000, ng_port: int = 9001) -> None:
     print(f"\n  Trailhead Explorer:  http://{hostname}:{port}/")
     print(f"  Neuroglancer:        http://{hostname}:{ng_port}/")
     print(f"\n  Press Ctrl+C to stop.\n")
+
+    # Warm up heavy imports in background so first Load click is fast
+    import threading
+
+    def _warmup():
+        import tensorstore  # noqa: F401
+        import scipy.ndimage  # noqa: F401
+        try:
+            import bioio  # noqa: F401
+        except ImportError:
+            pass
+        # Pre-load registry so discovered datasets are ready
+        Registry()
+
+    threading.Thread(target=_warmup, daemon=True).start()
 
     try:
         tornado.ioloop.IOLoop.current().start()

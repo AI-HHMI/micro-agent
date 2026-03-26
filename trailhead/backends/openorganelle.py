@@ -1,7 +1,7 @@
 """Backend for OpenOrganelle (Janelia/CellMap) datasets on S3.
 
 Data is stored as both Zarr and N5 arrays in the public S3 bucket
-(janelia-cosem-datasets). Zarr is preferred (already uint8, standard z,y,x layout).
+(janelia-cosem-datasets). Zarr is preferred (standard z,y,x layout).
 Falls back to N5 if Zarr is unavailable.
 
 IMPORTANT: Zarr arrays are stored as (z, y, x) but N5 arrays are stored as
@@ -85,9 +85,19 @@ class OpenOrganelleBackend(Backend):
             pass
 
         # Fallback to registry or default
-        if entry.voxel_size_nm and len(entry.voxel_size_nm) >= 3:
+        if entry.voxel_size_nm and len(entry.voxel_size_nm) >= 3 and any(v > 0 for v in entry.voxel_size_nm[:3]):
             return (entry.voxel_size_nm[0], entry.voxel_size_nm[1], entry.voxel_size_nm[2])
-        return (8.0, 8.0, 8.0)
+        return self._DEFAULT_VOXEL_NM
+
+    def has_voxel_metadata(self, entry: DatasetEntry) -> bool:
+        """OpenOrganelle reads voxel sizes from zarr/N5 attributes."""
+        # Trigger the read so the cache is populated
+        try:
+            self.get_voxel_size(entry, 0)
+            vox = self._voxel_size_cache.get(entry.id)
+            return vox is not None and vox != self._DEFAULT_VOXEL_NM
+        except Exception:
+            return super().has_voxel_metadata(entry)
 
     def _bucket_for(self, entry: DatasetEntry) -> str:
         """Extract S3 bucket name from entry.access_url, default to BUCKET."""
@@ -198,16 +208,7 @@ class OpenOrganelleBackend(Backend):
         self._resolved_raw_paths[entry.id] = actual
         self._drivers[actual] = driver
 
-        data = self._read_crop(arr, driver, offset, shape)
-
-        # Normalize to uint8 if needed (zarr is already uint8, N5 may be uint16)
-        if data.dtype != np.uint8:
-            dmin, dmax = float(data.min()), float(data.max())
-            if dmax > dmin:
-                data = ((data.astype(np.float32) - dmin) / (dmax - dmin) * 255).astype(np.uint8)
-            else:
-                data = np.zeros_like(data, dtype=np.uint8)
-        return data
+        return self._read_crop(arr, driver, offset, shape)
 
     def read_segmentation_crop(
         self,
@@ -216,7 +217,7 @@ class OpenOrganelleBackend(Backend):
         offset: tuple[int, int, int],
         shape: tuple[int, int, int],
         scale: int = 0,
-    ) -> NDArray[np.uint8]:
+    ) -> NDArray:
         zarr_path, n5_path, bucket = self._resolve_seg_paths(entry, organelle)
         arr, actual, driver = self._open_with_fallback(zarr_path, n5_path, scale, bucket)
         self._resolved_seg_paths[f"{entry.id}/{organelle}"] = actual
