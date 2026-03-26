@@ -329,7 +329,7 @@ class NextHandler(_JsonHandler):
 
 def _get_next_from_queue():
     """Get next crop from the prefetch queue. Blocks until one is available."""
-    sample = _prefetch_q.get(timeout=30)
+    sample = _prefetch_q.get(timeout=120)
     if sample is None:
         raise RuntimeError("No more samples. Click Load to reset.")
     return sample

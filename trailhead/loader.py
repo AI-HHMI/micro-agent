@@ -318,7 +318,7 @@ class UnifiedLoader:
         return out
 
     # Repositories with fast metadata access (zarr/N5 with small metadata files)
-    _FAST_REPOS = {"OpenOrganelle", "EMPIAR", "Google", "OpenNeuroData",
+    _FAST_REPOS = {"OpenOrganelle", "Google", "OpenNeuroData",
                    "CellMap Publications", "MICrONS", "FlyEM"}
 
     def _pick_entry(self) -> DatasetEntry:
