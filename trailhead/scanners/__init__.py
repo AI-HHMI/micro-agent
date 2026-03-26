@@ -61,12 +61,28 @@ async def _run_all_async(
         scanners = [cls() for cls in ALL_SCANNERS]
 
     import time
+    from concurrent.futures import ThreadPoolExecutor
+
+    # Scanners that use blocking s3fs calls must run in threads
+    # so they don't starve the async event loop.
+    _BLOCKING_SCANNERS = {"Allen", "OpenOrganelle"}
+
+    loop = asyncio.get_event_loop()
+    thread_pool = ThreadPoolExecutor(max_workers=4)
 
     async def _timed_scan(scanner: BaseScanner) -> list[DiscoveredDataset]:
         t0 = time.time()
         try:
-            result = await scanner.scan(limit=limit)
-            print(f"  [{scanner.name}] Found {len(result)} datasets ({time.time() - t0:.1f}s)")
+            if scanner.name in _BLOCKING_SCANNERS:
+                # Run blocking scanner in a thread to free the event loop
+                result = await loop.run_in_executor(
+                    thread_pool,
+                    lambda s=scanner: asyncio.run(s.scan(limit=limit)),
+                )
+            else:
+                result = await scanner.scan(limit=limit)
+            elapsed = time.time() - t0
+            print(f"  [{scanner.name}] Found {len(result)} datasets ({elapsed:.1f}s)")
             return result
         except Exception as e:
             print(f"  [{scanner.name}] Scanner failed: {e} ({time.time() - t0:.1f}s)")
@@ -95,6 +111,7 @@ async def _run_all_async(
         all_results = await asyncio.gather(*tasks)
     finally:
         heartbeat_task.cancel()
+        thread_pool.shutdown(wait=False)
 
     combined: list[DiscoveredDataset] = []
     for result in all_results:
