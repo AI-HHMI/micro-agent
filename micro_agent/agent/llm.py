@@ -5,8 +5,8 @@ Supports:
 - OpenAI-compatible APIs (GPT, Ollama, Together, Groq) — via litellm
 
 Configure via environment variables:
-    TRAILHEAD_LLM_PROVIDER: "anthropic" or "litellm" (default: "anthropic")
-    TRAILHEAD_LLM_MODEL: model name (default: "claude-sonnet-4-20250514")
+    MICRO_AGENT_LLM_PROVIDER: "anthropic" or "litellm" (default: "anthropic")
+    MICRO_AGENT_LLM_MODEL: model name (default: "claude-sonnet-4-20250514")
     ANTHROPIC_API_KEY: for Anthropic provider
     OPENAI_API_KEY: for OpenAI-compatible providers via litellm
 """
@@ -61,8 +61,8 @@ class AgentLLM:
         model: str | None = None,
         api_key: str | None = None,
     ) -> None:
-        self.provider = provider or os.environ.get("TRAILHEAD_LLM_PROVIDER", "anthropic")
-        self.model = model or os.environ.get("TRAILHEAD_LLM_MODEL", "claude-sonnet-4-20250514")
+        self.provider = provider or os.environ.get("MICRO_AGENT_LLM_PROVIDER", "anthropic")
+        self.model = model or os.environ.get("MICRO_AGENT_LLM_MODEL", "claude-sonnet-4-20250514")
         self._api_key = api_key
 
     async def chat_with_tools(

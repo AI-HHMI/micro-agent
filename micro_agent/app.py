@@ -671,7 +671,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
 <body>
 
 <header>
-  <div class="logo">Trail<span>head</span> Explorer</div>
+  <div class="logo">Micro<span>-Agent</span> Explorer</div>
   <span id="status-text">configure + load to start</span>
 </header>
 

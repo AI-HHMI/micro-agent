@@ -214,7 +214,7 @@ viewer = view_crop(sample)
 
 ## Web explorer
 
-![Micro-Agent Explorer](screenshot.png)
+![Micro-Agent Explorer](docs/screenshot.png)
 
 `pixi run explore` starts a local web server with:
 
@@ -335,8 +335,8 @@ Results saved to discovered_datasets.json
 The LLM backend is selectable: Anthropic SDK (Claude) or any OpenAI-compatible API via litellm. Configure via environment variables:
 
 ```bash
-export TRAILHEAD_LLM_PROVIDER=anthropic  # or "litellm"
-export TRAILHEAD_LLM_MODEL=claude-sonnet-4-20250514
+export MICRO_AGENT_LLM_PROVIDER=anthropic  # or "litellm"
+export MICRO_AGENT_LLM_MODEL=claude-sonnet-4-20250514
 export ANTHROPIC_API_KEY=sk-...
 
 pixi run discover-agent --focus "recent light-sheet zebrafish datasets"

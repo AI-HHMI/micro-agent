@@ -936,6 +936,29 @@ packages:
   version: 3.0.3
   sha256: 457a69a9577064c05a97c41f4e65148652db078a3a509039e64d3467b9e7ef97
   requires_python: '>=3.9'
+- pypi: .
+  name: micro-agent
+  version: 0.1.0
+  sha256: e6bb64130407caf6bd920e73e698ac2ee675853e02efa28eb619e8cb03b929a9
+  requires_dist:
+  - numpy
+  - scipy
+  - tensorstore
+  - s3fs
+  - zarr>=2.16,<3
+  - httpx>=0.27.0
+  - neuroglancer
+  - mcp>=1.0.0 ; extra == 'mcp'
+  - bioio ; extra == 'fluorescence'
+  - bioio-ome-tiff ; extra == 'fluorescence'
+  - bioio-tifffile ; extra == 'fluorescence'
+  - bioio-czi ; extra == 'fluorescence'
+  - bioio-lif ; extra == 'fluorescence'
+  - bioio-nd2 ; extra == 'fluorescence'
+  - anthropic ; extra == 'agent'
+  - litellm<1.81 ; extra == 'agent'
+  requires_python: '>=3.11'
+  editable: true
 - pypi: https://files.pythonhosted.org/packages/c6/bb/82c7dcf38070b46172a517e2334e665c5bf374a262f99a283ea454bece7c/ml_dtypes-0.5.4-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
   name: ml-dtypes
   version: 0.5.4
@@ -1599,29 +1622,6 @@ packages:
   version: 6.5.5
   sha256: e74c92e8e65086b338fd56333fb9a68b9f6f2fe7ad532645a290a464bcf46be5
   requires_python: '>=3.9'
-- pypi: .
-  name: trailhead
-  version: 0.1.0
-  sha256: a5c5ed5611dc080a93608037123b355e4dccc9c99c48fb6399c1214493d9d713
-  requires_dist:
-  - numpy
-  - scipy
-  - tensorstore
-  - s3fs
-  - zarr>=2.16,<3
-  - httpx>=0.27.0
-  - neuroglancer
-  - mcp>=1.0.0 ; extra == 'mcp'
-  - bioio ; extra == 'fluorescence'
-  - bioio-ome-tiff ; extra == 'fluorescence'
-  - bioio-tifffile ; extra == 'fluorescence'
-  - bioio-czi ; extra == 'fluorescence'
-  - bioio-lif ; extra == 'fluorescence'
-  - bioio-nd2 ; extra == 'fluorescence'
-  - anthropic ; extra == 'agent'
-  - litellm<1.81 ; extra == 'agent'
-  requires_python: '>=3.11'
-  editable: true
 - pypi: https://files.pythonhosted.org/packages/18/67/36e9267722cc04a6b9f15c7f3441c2363321a3ea07da7ae0c0707beb2a9c/typing_extensions-4.15.0-py3-none-any.whl
   name: typing-extensions
   version: 4.15.0
