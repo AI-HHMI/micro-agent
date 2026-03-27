@@ -1,5 +1,7 @@
 # Micro-Agent
 
+Agentic discovery & access of open-source microscopy data.
+
 Cross-repository microscopy training data discovery and loading. Micro-Agent provides a unified interface to query, load, and visualize EM and fluorescence datasets from multiple public repositories, yielding random crops at a target resolution suitable for training segmentation models.
 
 ## Repositories
