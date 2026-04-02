@@ -62,7 +62,8 @@ class OpenOrganelleScanner(BaseScanner):
         zarr_base = f"{bucket}/{ds_id}/{ds_id}.zarr/recon-1"
         try:
             em_items = self._fs.ls(zarr_base + "/em/")
-            em_names = [i.split("/")[-1] for i in em_items if not i.endswith(".json") and not i.startswith(".")]
+            em_names = [i.split("/")[-1] for i in em_items
+                        if not i.split("/")[-1].startswith(".") and not i.endswith(".json")]
             if em_names:
                 em_name = em_names[0]
                 return f"{ds_id}/{ds_id}.zarr/recon-1/em/{em_name}", em_name, "zarr"
@@ -73,7 +74,8 @@ class OpenOrganelleScanner(BaseScanner):
         n5_base = f"{bucket}/{ds_id}/{ds_id}.n5"
         try:
             em_items = self._fs.ls(n5_base + "/em/")
-            em_names = [i.split("/")[-1] for i in em_items if not i.endswith(".json") and not i.startswith(".")]
+            em_names = [i.split("/")[-1] for i in em_items
+                        if not i.split("/")[-1].startswith(".") and not i.endswith(".json")]
             if em_names:
                 em_name = em_names[0]
                 return f"{ds_id}/{ds_id}.n5/em/{em_name}", em_name, "n5"
