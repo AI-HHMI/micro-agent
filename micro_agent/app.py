@@ -40,7 +40,6 @@ log = logging.getLogger("micro_agent.app")
 # ---------------------------------------------------------------------------
 _viewer: neuroglancer.Viewer | None = None
 _loader: UnifiedLoader | None = None
-_loader_iter = None
 _current_sample: CropSample | None = None
 import queue as _queue_mod
 _prefetch_q: _queue_mod.Queue[CropSample | None] = _queue_mod.Queue(maxsize=10)
@@ -222,7 +221,7 @@ class LoadHandler(_JsonHandler):
 
     @tornado.gen.coroutine
     def post(self):
-        global _loader, _loader_iter, _crop_count
+        global _loader, _crop_count
         body = json.loads(self.request.body)
         log.info("Load request: %s", body)
 
@@ -258,7 +257,6 @@ class LoadHandler(_JsonHandler):
                 modality_class=body.get("modality_class", ""),
             )
             _loader = result["loader"]
-            _loader_iter = iter(_loader)
             _crop_count = 0
             log.info("Loaded %d datasets", result["num_datasets"])
 
@@ -308,7 +306,7 @@ class NextHandler(_JsonHandler):
     def post(self):
         global _current_sample, _crop_count
 
-        if _loader_iter is None:
+        if _loader is None:
             self.write_json({"error": "No loader configured. Click Load first."}, status=400)
             return
 
@@ -340,27 +338,25 @@ def _get_next_from_queue():
 def _prefetch_worker():
     """Fill the prefetch queue using a thread pool for parallel fetches.
 
-    Uses multiple threads so a slow dataset (e.g. EMPIAR ~60s) doesn't
-    block the queue from being filled by faster sources.
+    Calls _loader._fetch_one() directly instead of iterating the generator,
+    so multiple threads can fetch concurrently without locking.
     """
-    import threading
-    import time
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
     NUM_WORKERS = 3
     log.info("Prefetch worker started (%d parallel fetchers)", NUM_WORKERS)
 
-    _iter_lock = threading.Lock()
+    # Capture a local reference so a new Load doesn't pull it out from under us
+    loader = _loader
+    if loader is None:
+        return
+
+    fetched = 0
 
     def _fetch_next():
-        with _iter_lock:
-            try:
-                return next(_loader_iter)
-            except StopIteration:
-                return "STOP"
+        return loader._fetch_one()
 
     with ThreadPoolExecutor(max_workers=NUM_WORKERS) as pool:
-        # Keep NUM_WORKERS fetches in-flight at all times
         futures = set()
         for _ in range(NUM_WORKERS):
             if not _prefetch_stop.is_set():
@@ -371,7 +367,7 @@ def _prefetch_worker():
             try:
                 for f in as_completed(futures, timeout=1.0):
                     done.add(f)
-                    break  # process one at a time to stay responsive to stop
+                    break
             except TimeoutError:
                 continue
 
@@ -380,17 +376,23 @@ def _prefetch_worker():
 
             for f in done:
                 futures.discard(f)
-                result = f.result()
-                if result == "STOP":
-                    _prefetch_q.put(None)
-                    log.info("Prefetch worker: no more samples")
-                    # Cancel remaining futures
-                    _prefetch_stop.set()
-                    return
+                try:
+                    result = f.result()
+                except Exception as e:
+                    log.error("Prefetch fetch error: %s", e)
+                    result = None
+
                 if result is not None:
-                    _prefetch_q.put(result)  # blocks if queue full
-                    log.info("Prefetched: %s (%s) [queue ~%d]",
-                             result.dataset_id, result.repository, _prefetch_q.qsize())
+                    _prefetch_q.put(result)
+                    fetched += 1
+                    log.info("Prefetched: %s (%s) [queue ~%d, total %d]",
+                             result.dataset_id, result.repository, _prefetch_q.qsize(), fetched)
+
+                    if fetched >= loader.num_samples:
+                        _prefetch_q.put(None)
+                        log.info("Prefetch worker: reached sample limit")
+                        _prefetch_stop.set()
+                        return
 
                 # Submit a replacement fetch
                 if not _prefetch_stop.is_set():
