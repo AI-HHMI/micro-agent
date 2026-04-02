@@ -115,6 +115,68 @@ class IDRBackend(Backend):
             return True
         return super().has_voxel_metadata(entry)
 
+    def _read_ome_voxel_size_from_path(self, s3_path: str, scale: int = 0) -> tuple[float, float, float] | None:
+        """Read voxel sizes from any OME-Zarr .zattrs path."""
+        try:
+            zattrs_path = f"{s3_path}/.zattrs"
+            with self._fs.open(zattrs_path, "r") as f:
+                attrs = json.load(f)
+            multiscales = attrs.get("multiscales", [])
+            if multiscales:
+                ms = multiscales[0]
+                axes = ms.get("axes", [])
+                datasets = ms.get("datasets", [])
+                idx = min(scale, len(datasets) - 1) if datasets else 0
+                if idx < len(datasets):
+                    transforms = datasets[idx].get("coordinateTransformations", [])
+                    for t in transforms:
+                        if t.get("type") == "scale":
+                            s = t["scale"]
+                            axis_names = [a.get("name", "") for a in axes] if axes else []
+                            if axis_names:
+                                axis_map = dict(zip(axis_names, s))
+                                z_val = axis_map.get("z", 0)
+                                y_val = axis_map.get("y", 0)
+                                x_val = axis_map.get("x", 0)
+                                unit = next(
+                                    (a.get("unit", "") for a in axes if a.get("name") == "x"),
+                                    "",
+                                )
+                                factor = 1000.0 if unit in ("micrometer", "micrometre", "µm") else 1.0
+                                if z_val > 0 and y_val > 0 and x_val > 0:
+                                    return (z_val * factor, y_val * factor, x_val * factor)
+                            elif len(s) >= 3:
+                                return (float(s[-3]), float(s[-2]), float(s[-1]))
+        except Exception:
+            pass
+        return None
+
+    def _get_num_scales_from_path(self, s3_path: str) -> int:
+        """Read number of scale levels from an OME-Zarr .zattrs."""
+        try:
+            zattrs_path = f"{s3_path}/.zattrs"
+            with self._fs.open(zattrs_path, "r") as f:
+                attrs = json.load(f)
+            multiscales = attrs.get("multiscales", [])
+            if multiscales:
+                return len(multiscales[0].get("datasets", []))
+        except Exception:
+            pass
+        return 6
+
+    def get_seg_voxel_size(
+        self, entry: DatasetEntry, organelle: str, scale: int = 0,
+    ) -> tuple[float, float, float]:
+        seg_path = self._resolve_seg_path(entry, organelle)
+        vox = self._read_ome_voxel_size_from_path(seg_path, scale)
+        if vox:
+            return vox
+        return self.get_voxel_size(entry, scale)
+
+    def get_seg_num_scales(self, entry: DatasetEntry, organelle: str) -> int:
+        seg_path = self._resolve_seg_path(entry, organelle)
+        return self._get_num_scales_from_path(seg_path)
+
     def get_volume_shape(self, entry: DatasetEntry, scale: int = 0) -> tuple[int, ...]:
         arr = self._open_array(self._resolve_raw_path(entry), scale)
         shape = arr.shape

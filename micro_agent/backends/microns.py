@@ -73,6 +73,27 @@ class MICrONSBackend(Backend):
         except Exception:
             return 6
 
+    def get_seg_voxel_size(
+        self, entry: DatasetEntry, organelle: str, scale: int = 0,
+    ) -> tuple[float, float, float]:
+        url = self._resolve_seg_url(entry, organelle)
+        try:
+            info = self._fetch_info(url)
+            scales = info["scales"]
+            idx = min(scale, len(scales) - 1)
+            res = scales[idx]["resolution"]
+            return (float(res[2]), float(res[1]), float(res[0]))
+        except Exception:
+            return self.get_voxel_size(entry, scale)
+
+    def get_seg_num_scales(self, entry: DatasetEntry, organelle: str) -> int:
+        url = self._resolve_seg_url(entry, organelle)
+        try:
+            info = self._fetch_info(url)
+            return len(info["scales"])
+        except Exception:
+            return self.get_num_scales(entry)
+
     @lru_cache(maxsize=16)
     def _open_array(self, url: str, scale: int) -> ts.TensorStore:
         """Open a Neuroglancer precomputed volume at the given scale."""

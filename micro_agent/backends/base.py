@@ -104,6 +104,40 @@ class Backend(ABC):
                 break
         return best
 
+    def get_seg_voxel_size(
+        self, entry: DatasetEntry, organelle: str, scale: int = 0,
+    ) -> tuple[float, float, float]:
+        """Return (z, y, x) voxel size of a segmentation volume at the given scale.
+
+        Default: same as raw voxel size.  Override when seg has a different
+        scale hierarchy (e.g. OpenOrganelle where seg can be at 4 nm native).
+        """
+        return self.get_voxel_size(entry, scale)
+
+    def get_seg_num_scales(self, entry: DatasetEntry, organelle: str) -> int:
+        """Return number of scale levels for a segmentation volume.
+
+        Default: same as raw.  Override when seg has a different pyramid.
+        """
+        return self.get_num_scales(entry)
+
+    def pick_seg_scale(
+        self,
+        entry: DatasetEntry,
+        organelle: str,
+        target_nm: tuple[float, float, float],
+    ) -> int:
+        """Pick best scale level for a segmentation volume."""
+        num = self.get_seg_num_scales(entry, organelle)
+        best = 0
+        for s in range(num):
+            vox = self.get_seg_voxel_size(entry, organelle, s)
+            if all(v <= t for v, t in zip(vox, target_nm)):
+                best = s
+            else:
+                break
+        return best
+
     def read_raw_crop_multichannel(
         self,
         entry: DatasetEntry,

@@ -170,6 +170,8 @@ def _sample_to_dict(sample: CropSample) -> dict:
         "resolution_nm": [round(v, 2) for v in sample.resolution_nm],
         "source_resolution_nm": [round(v, 2) for v in sample.source_resolution_nm],
         "scale_used": sample.scale_used,
+        "seg_source_resolution_nm": [round(v, 2) for v in sample.seg_source_resolution_nm],
+        "seg_scale_used": sample.seg_scale_used,
         "seg_status": sample.seg_status,
         "raw_path": sample.raw_path,
         "seg_path": sample.seg_path,
@@ -977,12 +979,17 @@ async function doNext() {
       ${chInfo}
       <span><span class="meta-key">seg:</span> <span class="meta-val ${segClass}">${data.seg_status}</span></span>
     `;
-    const srcText = data.voxel_size_is_estimated
+    const rawSrcText = data.voxel_size_is_estimated
       ? `<span class="meta-val bad">unknown (no metadata)</span>`
       : `<span class="meta-val">${data.source_resolution_nm.join(' x ')} nm @ s${data.scale_used}</span>`;
+    const segSrcText = (data.seg_status === 'loaded' || data.seg_status === 'empty')
+        && data.seg_source_resolution_nm.some(v => v > 0)
+      ? `<span><span class="meta-key">seg source:</span> <span class="meta-val">${data.seg_source_resolution_nm.join(' x ')} nm @ s${data.seg_scale_used}</span></span>`
+      : '';
     document.getElementById('meta-row-2').innerHTML = `
       <span><span class="meta-key">resolution:</span> <span class="meta-val">${data.resolution_nm.join(' x ')} nm</span></span>
-      <span><span class="meta-key">source:</span> ${srcText}</span>
+      <span><span class="meta-key">raw source:</span> ${rawSrcText}</span>
+      ${segSrcText}
       <span><span class="meta-key">offset:</span> <span class="meta-val">(${data.offset.join(', ')})</span></span>
       <span><span class="meta-key">shape:</span> <span class="meta-val">${data.raw_shape.join(' x ')}</span></span>
       <span><span class="meta-key">range:</span> <span class="meta-val">[${data.raw_min}, ${data.raw_max}]</span></span>

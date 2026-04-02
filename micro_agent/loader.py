@@ -41,6 +41,8 @@ class CropSample:
     resolution_nm: tuple[float, float, float] = (0.0, 0.0, 0.0)
     source_resolution_nm: tuple[float, float, float] = (0.0, 0.0, 0.0)
     scale_used: int = 0
+    seg_source_resolution_nm: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    seg_scale_used: int = 0
     seg_status: str = "no_seg_available"  # "loaded", "empty", "failed: ...", "no_seg_available"
     raw_path: str = ""
     seg_path: str = ""
@@ -415,12 +417,41 @@ class UnifiedLoader:
 
         seg = None
         seg_status = "no_seg_available"
+        seg_src_vox = (0.0, 0.0, 0.0)
+        seg_scale = 0
         if entry.has_segmentation and self.organelle in entry.segmentation_paths:
             try:
-                seg = backend.read_segmentation_crop(
-                    entry, self.organelle, offset, read, scale
+                # Pick scale for seg independently — it may have a different
+                # scale hierarchy than raw (e.g. seg at 4nm native, raw at 8nm).
+                if self.resolution_nm is not None and not voxel_size_is_estimated:
+                    seg_scale = backend.pick_seg_scale(entry, self.organelle, self.resolution_nm)
+                    seg_src_vox = backend.get_seg_voxel_size(entry, self.organelle, seg_scale)
+                    seg_zoom = (
+                        seg_src_vox[0] / self.resolution_nm[0],
+                        seg_src_vox[1] / self.resolution_nm[1],
+                        seg_src_vox[2] / self.resolution_nm[2],
+                    )
+                else:
+                    seg_scale = scale
+                    seg_src_vox = src_vox
+                    seg_zoom = zoom_factors
+
+                # Convert raw voxel offset to physical coords, then to seg voxel coords
+                seg_offset = (
+                    int(offset[0] * src_vox[0] / seg_src_vox[0]) if seg_src_vox[0] > 0 else offset[0],
+                    int(offset[1] * src_vox[1] / seg_src_vox[1]) if seg_src_vox[1] > 0 else offset[1],
+                    int(offset[2] * src_vox[2] / seg_src_vox[2]) if seg_src_vox[2] > 0 else offset[2],
                 )
-                seg = self._resample(seg, zoom_factors, order=0)
+                seg_read = (
+                    math.ceil(self.crop_size[0] / seg_zoom[0]) if seg_zoom[0] > 0 else read[0],
+                    math.ceil(self.crop_size[1] / seg_zoom[1]) if seg_zoom[1] > 0 else read[1],
+                    math.ceil(self.crop_size[2] / seg_zoom[2]) if seg_zoom[2] > 0 else read[2],
+                )
+
+                seg = backend.read_segmentation_crop(
+                    entry, self.organelle, seg_offset, seg_read, seg_scale
+                )
+                seg = self._resample(seg, seg_zoom, order=0)
                 seg_status = "loaded" if seg.any() else "empty"
             except Exception as e:
                 seg_status = f"failed: {e}"
@@ -501,6 +532,8 @@ class UnifiedLoader:
             resolution_nm=self.resolution_nm or src_vox,
             source_resolution_nm=src_vox,
             scale_used=scale,
+            seg_source_resolution_nm=seg_src_vox,
+            seg_scale_used=seg_scale,
             seg_status=seg_status,
             raw_path=raw_path,
             seg_path=seg_path,
