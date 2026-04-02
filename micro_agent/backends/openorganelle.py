@@ -32,67 +32,76 @@ class OpenOrganelleBackend(Backend):
         self._resolved_raw_paths: dict[str, str] = {}
         self._resolved_seg_paths: dict[str, str] = {}
         self._drivers: dict[str, str] = {}  # path -> "zarr" or "n5"
-        self._voxel_size_cache: dict[str, tuple[float, float, float]] = {}
         self._num_scales_cache: dict[str, int] = {}  # path -> num_scales
+        # path -> list of (z, y, x) voxel sizes per scale level
+        self._scale_voxels_cache: dict[str, list[tuple[float, float, float]]] = {}
 
-    def get_voxel_size(self, entry: DatasetEntry, scale: int = 0) -> tuple[float, float, float]:
-        raw_path = entry.raw_path or f"{entry.id}/{entry.id}.n5/em/fibsem-uint16"
-        num = self._read_num_scales(raw_path)
-        if scale >= num:
-            raise IndexError(f"Scale {scale} out of range (max {num - 1}) for {entry.id}")
-        cache_key = entry.id
-        if cache_key not in self._voxel_size_cache:
-            base = self._read_base_voxel_size(entry)
-            self._voxel_size_cache[cache_key] = base
-        base = self._voxel_size_cache[cache_key]
-        factor = 2 ** scale
-        return (base[0] * factor, base[1] * factor, base[2] * factor)
+    def _read_scale_voxels(self, path: str, entry: DatasetEntry) -> list[tuple[float, float, float]]:
+        """Read per-scale voxel sizes for a volume path. Caches the result.
 
-    def _read_base_voxel_size(self, entry: DatasetEntry) -> tuple[float, float, float]:
-        """Read base voxel size from zarr or N5 attributes on S3.
-
-        Uses entry.raw_path to determine format rather than hardcoding paths.
+        For zarr: reads all scales from .zattrs multiscales in one request.
+        For N5: reads s0 metadata and assumes 2x downsampling per scale.
         """
+        if path in self._scale_voxels_cache:
+            return self._scale_voxels_cache[path]
+
         bucket = self._bucket_for(entry)
         bucket_url = f"https://{bucket}.s3.amazonaws.com"
-        raw_path = entry.raw_path or f"{entry.id}/{entry.id}.n5/em/fibsem-uint16"
+        voxels: list[tuple[float, float, float]] = []
 
-        # If raw_path is zarr, try .zattrs first
-        if ".zarr/" in raw_path:
-            zattrs_url = f"{bucket_url}/{raw_path}/.zattrs"
+        # Zarr: .zattrs has all scales in one request
+        if ".zarr/" in path:
             try:
-                resp = httpx.get(zattrs_url, timeout=15)
+                resp = httpx.get(f"{bucket_url}/{path}/.zattrs", timeout=15)
                 if resp.status_code == 200:
                     attrs = resp.json()
-                    if "multiscales" in attrs:
-                        ms = attrs["multiscales"][0]
-                        datasets = ms.get("datasets", [])
-                        if datasets:
-                            transforms = datasets[0].get("coordinateTransformations", [])
-                            for t in transforms:
-                                if t.get("type") == "scale":
-                                    s = t["scale"]
-                                    return (float(s[0]), float(s[1]), float(s[2]))
+                    ms = attrs.get("multiscales", [{}])[0]
+                    for ds in ms.get("datasets", []):
+                        for t in ds.get("coordinateTransformations", []):
+                            if t.get("type") == "scale":
+                                s = t["scale"]
+                                voxels.append((float(s[0]), float(s[1]), float(s[2])))
+                                break
             except Exception:
                 pass
 
-        # Try N5 s0/attributes.json
-        n5_attrs_url = f"{bucket_url}/{raw_path}/s0/attributes.json"
-        try:
-            resp = httpx.get(n5_attrs_url, timeout=15)
-            if resp.status_code == 200:
-                attrs = resp.json()
-                if "pixelResolution" in attrs:
-                    dims = attrs["pixelResolution"]["dimensions"]
-                    # N5 pixelResolution follows data axes order [x, y, z]
-                    return (float(dims[2]), float(dims[1]), float(dims[0]))
-        except Exception:
-            pass
+        # N5: read s0, infer rest as 2x per level (also used as zarr fallback)
+        if not voxels:
+            try:
+                resp = httpx.get(f"{bucket_url}/{path}/s0/attributes.json", timeout=15)
+                if resp.status_code == 200:
+                    attrs = resp.json()
+                    if "pixelResolution" in attrs:
+                        dims = attrs["pixelResolution"]["dimensions"]
+                        # N5 pixelResolution is [x, y, z]
+                        base = (float(dims[2]), float(dims[1]), float(dims[0]))
+                        num = self._read_num_scales(path)
+                        for s in range(num):
+                            f = 2 ** s
+                            voxels.append((base[0] * f, base[1] * f, base[2] * f))
+            except Exception:
+                pass
 
-        # Fallback to registry or default
-        if entry.voxel_size_nm and len(entry.voxel_size_nm) >= 3 and any(v > 0 for v in entry.voxel_size_nm[:3]):
-            return (entry.voxel_size_nm[0], entry.voxel_size_nm[1], entry.voxel_size_nm[2])
-        return self._DEFAULT_VOXEL_NM
+        # Last-resort fallback from registry metadata
+        if not voxels:
+            if entry.voxel_size_nm and len(entry.voxel_size_nm) >= 3 and any(v > 0 for v in entry.voxel_size_nm[:3]):
+                base = (entry.voxel_size_nm[0], entry.voxel_size_nm[1], entry.voxel_size_nm[2])
+            else:
+                base = self._DEFAULT_VOXEL_NM
+            num = self._read_num_scales(path)
+            for s in range(num):
+                f = 2 ** s
+                voxels.append((base[0] * f, base[1] * f, base[2] * f))
+
+        self._scale_voxels_cache[path] = voxels
+        return voxels
+
+    def get_voxel_size(self, entry: DatasetEntry, scale: int = 0) -> tuple[float, float, float]:
+        raw_path = entry.raw_path or f"{entry.id}/{entry.id}.n5/em/fibsem-uint16"
+        voxels = self._read_scale_voxels(raw_path, entry)
+        if scale >= len(voxels):
+            raise IndexError(f"Scale {scale} out of range (max {len(voxels) - 1}) for {entry.id}")
+        return voxels[scale]
 
     def _read_num_scales(self, path: str) -> int:
         """Probe how many scale levels exist for a given volume path."""
@@ -135,65 +144,17 @@ class OpenOrganelleBackend(Backend):
         self, entry: DatasetEntry, organelle: str, scale: int = 0,
     ) -> tuple[float, float, float]:
         seg_path, _ = self._resolve_seg_paths(entry, organelle)
-        num = self._read_num_scales(seg_path)
-        if scale >= num:
-            raise IndexError(f"Seg scale {scale} out of range (max {num - 1}) for {entry.id}/{organelle}")
-        cache_key = f"{entry.id}/{organelle}"
-        if cache_key not in self._voxel_size_cache:
-            base = self._read_seg_base_voxel_size(entry, organelle)
-            self._voxel_size_cache[cache_key] = base
-        base = self._voxel_size_cache[cache_key]
-        factor = 2 ** scale
-        return (base[0] * factor, base[1] * factor, base[2] * factor)
-
-    def _read_seg_base_voxel_size(
-        self, entry: DatasetEntry, organelle: str,
-    ) -> tuple[float, float, float]:
-        """Read base voxel size for a segmentation volume."""
-        bucket = self._bucket_for(entry)
-        bucket_url = f"https://{bucket}.s3.amazonaws.com"
-        seg_path, _ = self._resolve_seg_paths(entry, organelle)
-
-        if ".zarr/" in seg_path:
-            zattrs_url = f"{bucket_url}/{seg_path}/.zattrs"
-            try:
-                resp = httpx.get(zattrs_url, timeout=15)
-                if resp.status_code == 200:
-                    attrs = resp.json()
-                    if "multiscales" in attrs:
-                        ms = attrs["multiscales"][0]
-                        datasets = ms.get("datasets", [])
-                        if datasets:
-                            transforms = datasets[0].get("coordinateTransformations", [])
-                            for t in transforms:
-                                if t.get("type") == "scale":
-                                    s = t["scale"]
-                                    return (float(s[0]), float(s[1]), float(s[2]))
-            except Exception:
-                pass
-
-        n5_attrs_url = f"{bucket_url}/{seg_path}/s0/attributes.json"
-        try:
-            resp = httpx.get(n5_attrs_url, timeout=15)
-            if resp.status_code == 200:
-                attrs = resp.json()
-                if "pixelResolution" in attrs:
-                    dims = attrs["pixelResolution"]["dimensions"]
-                    return (float(dims[2]), float(dims[1]), float(dims[0]))
-        except Exception:
-            pass
-
-        # Fall back to raw voxel size
-        return self._read_base_voxel_size(entry)
+        voxels = self._read_scale_voxels(seg_path, entry)
+        if scale >= len(voxels):
+            raise IndexError(f"Seg scale {scale} out of range (max {len(voxels) - 1}) for {entry.id}/{organelle}")
+        return voxels[scale]
 
 
     def has_voxel_metadata(self, entry: DatasetEntry) -> bool:
         """OpenOrganelle reads voxel sizes from zarr/N5 attributes."""
-        # Trigger the read so the cache is populated
         try:
-            self.get_voxel_size(entry, 0)
-            vox = self._voxel_size_cache.get(entry.id)
-            return vox is not None and vox != self._DEFAULT_VOXEL_NM
+            vox = self.get_voxel_size(entry, 0)
+            return vox != self._DEFAULT_VOXEL_NM
         except Exception:
             return super().has_voxel_metadata(entry)
 
