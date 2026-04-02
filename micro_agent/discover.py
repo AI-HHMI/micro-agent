@@ -44,11 +44,10 @@ class DiscoveredDataset:
     provenance: str = ""  # How/where it was found
     supports_random_access: bool = True  # False for catalog-only entries without data paths
     # Multi-channel / fluorescence fields
-    num_channels: int = 1
+    num_channels: int = 0  # 0 = unknown
     channel_names: list[str] = field(default_factory=list)
     wavelengths_nm: list[float] = field(default_factory=list)
     fluorophores: list[str] = field(default_factory=list)
-    bit_depth: int = 8
     modality_class: str = ""  # "em" | "fluorescence" | "correlative"
     validation_status: str = "pending"  # "verified" | "failed" | "pending"
 
@@ -58,57 +57,17 @@ class DiscoveredDataset:
 # ---------------------------------------------------------------------------
 
 def scan_openorganelle(fs: s3fs.S3FileSystem | None = None) -> list[DiscoveredDataset]:
-    """Scan the OpenOrganelle S3 bucket for all datasets."""
-    if fs is None:
-        fs = s3fs.S3FileSystem(anon=True)
+    """Scan the OpenOrganelle S3 bucket for all datasets.
 
-    bucket = "janelia-cosem-datasets"
-    results: list[DiscoveredDataset] = []
+    Delegates to OpenOrganelleScanner for the actual scan logic.
+    """
+    import asyncio
+    from micro_agent.scanners.openorganelle import OpenOrganelleScanner
 
-    try:
-        all_dirs = fs.ls(bucket)
-    except Exception as e:
-        print(f"  [OpenOrganelle] Failed to list bucket: {e}")
-        return results
-
-    dataset_ids = [d.split("/")[-1] for d in all_dirs if not d.endswith(".md")]
-
-    for ds_id in sorted(dataset_ids):
-        n5_base = f"{bucket}/{ds_id}/{ds_id}.n5"
-        try:
-            em_items = fs.ls(n5_base + "/em/")
-            em_names = [i.split("/")[-1] for i in em_items if not i.endswith(".json")]
-            if not em_names:
-                continue
-            em_name = em_names[0]
-        except (FileNotFoundError, Exception):
-            continue
-
-        # Check for segmentations
-        organelles: list[str] = []
-        try:
-            label_items = fs.ls(n5_base + "/labels/")
-            seg_names = [i.split("/")[-1] for i in label_items if i.split("/")[-1].endswith("_seg")]
-            organelles = [s.replace("_seg", "") for s in sorted(seg_names)]
-        except FileNotFoundError:
-            pass
-
-        n5_rel = f"{ds_id}/{ds_id}.n5"
-        results.append(DiscoveredDataset(
-            id=ds_id,
-            repository="OpenOrganelle",
-            title=ds_id,
-            data_format="n5",
-            imaging_modality="FIB-SEM" if "fibsem" in em_name else "TEM",
-            access_url=f"s3://{bucket}/{ds_id}/",
-            raw_path=f"{n5_rel}/em/{em_name}",
-            organelles=organelles,
-            has_segmentation=len(organelles) > 0,
-            segmentation_paths={o: f"{n5_rel}/labels/{o}_seg" for o in organelles},
-            provenance="S3 bucket scan of janelia-cosem-datasets",
-        ))
-
-    return results
+    scanner = OpenOrganelleScanner()
+    if fs is not None:
+        scanner._fs = fs
+    return asyncio.get_event_loop().run_until_complete(scanner.scan(limit=999))
 
 
 # ---------------------------------------------------------------------------

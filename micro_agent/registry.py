@@ -32,11 +32,10 @@ class DatasetEntry:
     segmentation_paths: dict[str, str] = field(default_factory=dict)
     supports_random_access: bool = True  # False for FTP/download-only repos like EMPIAR
     # Multi-channel / fluorescence fields
-    num_channels: int = 1
+    num_channels: int = 0  # 0 = unknown
     channel_names: list[str] = field(default_factory=list)  # e.g. ["DAPI", "GFP", "mCherry"]
     wavelengths_nm: list[float] = field(default_factory=list)  # e.g. [405, 488, 561]
     fluorophores: list[str] = field(default_factory=list)
-    bit_depth: int = 8
     modality_class: str = ""  # "em" | "fluorescence" | "correlative"
     validation_status: str = "pending"  # "verified" | "failed" | "pending"
 
@@ -78,10 +77,17 @@ def _load_openorganelle_catalog() -> list[DatasetEntry]:
     for item in items:
         ds_id = item["id"]
         em_name = item.get("em_name", "fibsem-uint16")
-        n5_base = f"{ds_id}/{ds_id}.n5"
         organelles = item.get("organelles", [])
         # Strip _seg suffix from organelle names — the catalog stores bare names
         clean_organelles = [o.replace("_seg", "") for o in organelles]
+
+        # Use explicit raw_path/data_format if provided, otherwise default to N5
+        raw_path = item.get("raw_path", f"{ds_id}/{ds_id}.n5/em/{em_name}")
+        data_format = item.get("data_format", "n5")
+        seg_paths = item.get("segmentation_paths")
+        if seg_paths is None:
+            n5_base = f"{ds_id}/{ds_id}.n5"
+            seg_paths = {o: f"{n5_base}/labels/{o}_seg" for o in clean_organelles}
 
         entries.append(DatasetEntry(
             id=ds_id,
@@ -94,12 +100,10 @@ def _load_openorganelle_catalog() -> list[DatasetEntry]:
             organelles=clean_organelles,
             has_segmentation=item.get("has_segmentation", len(organelles) > 0),
             has_raw=True,
-            data_format="n5",
+            data_format=data_format,
             access_url=f"s3://janelia-cosem-datasets/{ds_id}/",
-            raw_path=f"{n5_base}/em/{em_name}",
-            segmentation_paths={
-                o: f"{n5_base}/labels/{o}_seg" for o in clean_organelles
-            },
+            raw_path=raw_path,
+            segmentation_paths=seg_paths,
             modality_class="em",
         ))
     return entries
@@ -467,11 +471,10 @@ class Registry:
                 raw_path=item.get("raw_path", ""),
                 segmentation_paths=item.get("segmentation_paths", {}),
                 supports_random_access=item.get("supports_random_access", True),
-                num_channels=item.get("num_channels", 1),
+                num_channels=item.get("num_channels", 0),
                 channel_names=item.get("channel_names", []),
                 wavelengths_nm=item.get("wavelengths_nm", []),
                 fluorophores=item.get("fluorophores", []),
-                bit_depth=item.get("bit_depth", 8),
                 modality_class=item.get("modality_class", ""),
                 validation_status=item.get("validation_status", "pending"),
             )

@@ -41,6 +41,8 @@ class CropSample:
     resolution_nm: tuple[float, float, float] = (0.0, 0.0, 0.0)
     source_resolution_nm: tuple[float, float, float] = (0.0, 0.0, 0.0)
     scale_used: int = 0
+    seg_source_resolution_nm: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    seg_scale_used: int = 0
     seg_status: str = "no_seg_available"  # "loaded", "empty", "failed: ...", "no_seg_available"
     raw_path: str = ""
     seg_path: str = ""
@@ -125,6 +127,7 @@ class UnifiedLoader:
         balance_repositories: bool = False,
         require_nonempty_raw: bool = False,
         require_nonempty_seg: bool = False,
+        allow_padding: bool = True,
         modality_class: str = "",
     ) -> None:
         self.organelle = organelle
@@ -135,6 +138,7 @@ class UnifiedLoader:
         self._balance_repositories = balance_repositories
         self._require_nonempty_raw = require_nonempty_raw
         self._require_nonempty_seg = require_nonempty_seg
+        self._allow_padding = allow_padding
 
         self._rng = random.Random(seed)
         self._registry = registry or Registry()
@@ -284,10 +288,12 @@ class UnifiedLoader:
             self._shapes[entry.id] = shape
         return shape
 
-    def _clamp_read_shape(self, entry: DatasetEntry) -> tuple[int, int, int]:
-        """Return the read shape clamped to the volume dimensions."""
+    def _get_read_shape(self, entry: DatasetEntry) -> tuple[int, int, int]:
+        """Return the read shape, clamped to volume dims unless padding is allowed."""
         vol_shape = self._get_shape(entry)
         _, _, _, read_shape = self._get_scale_info(entry)
+        if self._allow_padding:
+            return read_shape
         return (
             min(read_shape[0], vol_shape[0]),
             min(read_shape[1], vol_shape[1]),
@@ -296,15 +302,58 @@ class UnifiedLoader:
 
     def _random_offset(self, entry: DatasetEntry) -> tuple[int, int, int]:
         vol_shape = self._get_shape(entry)
-        read = self._clamp_read_shape(entry)
-        max_z = max(0, vol_shape[0] - read[0])
-        max_y = max(0, vol_shape[1] - read[1])
-        max_x = max(0, vol_shape[2] - read[2])
+        _, _, _, read_shape = self._get_scale_info(entry)
+        if self._allow_padding:
+            # Offset can be negative — crop can extend beyond bounds but must
+            # overlap the volume by at least 1 voxel in each axis.
+            min_off = tuple(-(read_shape[i] - 1) for i in range(3))
+            max_off = tuple(vol_shape[i] - 1 for i in range(3))
+        else:
+            read = self._get_read_shape(entry)
+            min_off = (0, 0, 0)
+            max_off = tuple(max(0, vol_shape[i] - read[i]) for i in range(3))
         return (
-            self._rng.randint(0, max_z),
-            self._rng.randint(0, max_y),
-            self._rng.randint(0, max_x),
+            self._rng.randint(min_off[0], max_off[0]),
+            self._rng.randint(min_off[1], max_off[1]),
+            self._rng.randint(min_off[2], max_off[2]),
         )
+
+    @staticmethod
+    def _padded_read(
+        read_fn,
+        offset: tuple[int, int, int],
+        shape: tuple[int, int, int],
+        vol_shape: tuple[int, ...],
+        scale: int,
+        dtype=np.uint8,
+    ) -> np.ndarray:
+        """Read a crop that may extend beyond volume bounds, zero-padding as needed.
+
+        Clips the read region to [0, vol_shape) in each axis, reads the
+        in-bounds portion, and places it into a zero-filled array of the
+        requested shape.
+        """
+        # Compute the in-bounds slice
+        src_start = tuple(max(0, offset[i]) for i in range(3))
+        src_end = tuple(min(vol_shape[i], offset[i] + shape[i]) for i in range(3))
+        src_shape = tuple(src_end[i] - src_start[i] for i in range(3))
+
+        if any(s <= 0 for s in src_shape):
+            return np.zeros(shape, dtype=dtype)
+
+        data = read_fn(src_start, src_shape, scale)
+
+        if src_shape == shape and src_start == offset:
+            return data  # no padding needed
+
+        out = np.zeros(shape, dtype=data.dtype)
+        # Where in the output the read data goes
+        dst_start = tuple(src_start[i] - offset[i] for i in range(3))
+        slices = tuple(
+            slice(dst_start[i], dst_start[i] + src_shape[i]) for i in range(3)
+        )
+        out[slices] = data
+        return out
 
     def _resample(self, data: np.ndarray, zoom_factors: tuple[float, float, float], order: int = 1) -> np.ndarray:
         """Resample data to target resolution. order=0 for segmentation, 1 for raw."""
@@ -372,33 +421,37 @@ class UnifiedLoader:
 
         try:
             if voxel_size_is_estimated:
-                # No voxel size metadata — read crop_size voxels at scale 0,
-                # no resampling. We can't match a target resolution without
-                # knowing the source voxel size.
                 scale = 0
                 src_vox = (0.0, 0.0, 0.0)
                 zoom_factors = (1.0, 1.0, 1.0)
                 read = self.crop_size
-                # Still need the volume shape for offset bounds
                 vol_shape = backend.get_volume_shape(entry, 0)
-                max_z = max(0, vol_shape[0] - read[0])
-                max_y = max(0, vol_shape[1] - read[1])
-                max_x = max(0, vol_shape[2] - read[2])
-                offset = (
-                    self._rng.randint(0, max_z),
-                    self._rng.randint(0, max_y),
-                    self._rng.randint(0, max_x),
+                if self._allow_padding:
+                    min_off = tuple(-(read[i] - 1) for i in range(3))
+                    max_off = tuple(vol_shape[i] - 1 for i in range(3))
+                else:
+                    min_off = (0, 0, 0)
+                    max_off = tuple(max(0, vol_shape[i] - read[i]) for i in range(3))
+                offset = tuple(
+                    self._rng.randint(min_off[i], max_off[i]) for i in range(3)
                 )
             else:
                 t1 = _time.time()
                 scale, src_vox, zoom_factors, _ = self._get_scale_info(entry)
                 t2 = _time.time()
+                read = self._get_read_shape(entry)
+                vol_shape = self._get_shape(entry)
                 offset = self._random_offset(entry)
-                read = self._clamp_read_shape(entry)
                 print(f"  _fetch_one {entry.id}: scale_info={t2-t1:.1f}s", flush=True)
 
             t3 = _time.time()
-            raw = backend.read_raw_crop(entry, offset, read, scale)
+            if self._allow_padding:
+                raw = self._padded_read(
+                    lambda o, s, sc: backend.read_raw_crop(entry, o, s, sc),
+                    offset, read, vol_shape, scale,
+                )
+            else:
+                raw = backend.read_raw_crop(entry, offset, read, scale)
             t4 = _time.time()
             print(f"  _fetch_one {entry.id}: read_raw={t4-t3:.1f}s voxel_known={not voxel_size_is_estimated}", flush=True)
         except Exception as e:
@@ -415,12 +468,54 @@ class UnifiedLoader:
 
         seg = None
         seg_status = "no_seg_available"
+        seg_src_vox = (0.0, 0.0, 0.0)
+        seg_scale = 0
         if entry.has_segmentation and self.organelle in entry.segmentation_paths:
             try:
-                seg = backend.read_segmentation_crop(
-                    entry, self.organelle, offset, read, scale
+                # Pick scale for seg independently — it may have a different
+                # scale hierarchy than raw (e.g. seg at 4nm native, raw at 8nm).
+                if self.resolution_nm is not None and not voxel_size_is_estimated:
+                    seg_scale = backend.pick_seg_scale(entry, self.organelle, self.resolution_nm)
+                    seg_src_vox = backend.get_seg_voxel_size(entry, self.organelle, seg_scale)
+                    seg_zoom = (
+                        seg_src_vox[0] / self.resolution_nm[0],
+                        seg_src_vox[1] / self.resolution_nm[1],
+                        seg_src_vox[2] / self.resolution_nm[2],
+                    )
+                else:
+                    seg_scale = scale
+                    seg_src_vox = src_vox
+                    seg_zoom = zoom_factors
+
+                # Convert raw voxel offset to physical coords, then to seg voxel coords
+                seg_offset = (
+                    int(offset[0] * src_vox[0] / seg_src_vox[0]) if seg_src_vox[0] > 0 else offset[0],
+                    int(offset[1] * src_vox[1] / seg_src_vox[1]) if seg_src_vox[1] > 0 else offset[1],
+                    int(offset[2] * src_vox[2] / seg_src_vox[2]) if seg_src_vox[2] > 0 else offset[2],
                 )
-                seg = self._resample(seg, zoom_factors, order=0)
+                seg_read = (
+                    math.ceil(self.crop_size[0] / seg_zoom[0]) if seg_zoom[0] > 0 else read[0],
+                    math.ceil(self.crop_size[1] / seg_zoom[1]) if seg_zoom[1] > 0 else read[1],
+                    math.ceil(self.crop_size[2] / seg_zoom[2]) if seg_zoom[2] > 0 else read[2],
+                )
+
+                if self._allow_padding:
+                    # Estimate seg volume shape from raw shape and voxel ratios
+                    seg_vol = tuple(
+                        int(vol_shape[i] * src_vox[i] / seg_src_vox[i])
+                        if seg_src_vox[i] > 0 else vol_shape[i]
+                        for i in range(3)
+                    )
+                    seg = self._padded_read(
+                        lambda o, s, sc: backend.read_segmentation_crop(entry, self.organelle, o, s, sc),
+                        seg_offset, seg_read, seg_vol, seg_scale,
+                        dtype=np.uint32,
+                    )
+                else:
+                    seg = backend.read_segmentation_crop(
+                        entry, self.organelle, seg_offset, seg_read, seg_scale
+                    )
+                seg = self._resample(seg, seg_zoom, order=0)
                 seg_status = "loaded" if seg.any() else "empty"
             except Exception as e:
                 seg_status = f"failed: {e}"
@@ -501,6 +596,8 @@ class UnifiedLoader:
             resolution_nm=self.resolution_nm or src_vox,
             source_resolution_nm=src_vox,
             scale_used=scale,
+            seg_source_resolution_nm=seg_src_vox,
+            seg_scale_used=seg_scale,
             seg_status=seg_status,
             raw_path=raw_path,
             seg_path=seg_path,

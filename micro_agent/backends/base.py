@@ -76,14 +76,6 @@ class Backend(ABC):
             and any(v > 0 for v in entry.voxel_size_nm[:3])
         )
 
-    def get_num_scales(self, entry: DatasetEntry) -> int:
-        """Return the number of available scale levels.
-
-        Default: try opening scales until one fails, max 10.
-        Subclasses should override if they can determine this from metadata.
-        """
-        return 6  # safe default for most multiscale pyramids
-
     def pick_scale(
         self,
         entry: DatasetEntry,
@@ -92,12 +84,44 @@ class Backend(ABC):
         """Pick the coarsest scale level that's still finer than target_nm.
 
         Returns the scale index. If all scales are coarser than target,
-        returns 0 (finest available).
+        returns 0 (finest available). Iterates until get_voxel_size fails
+        or returns a resolution coarser than the target.
         """
-        num = self.get_num_scales(entry)
         best = 0
-        for s in range(num):
-            vox = self.get_voxel_size(entry, s)
+        for s in range(20):
+            try:
+                vox = self.get_voxel_size(entry, s)
+            except Exception:
+                break
+            if all(v <= t for v, t in zip(vox, target_nm)):
+                best = s
+            else:
+                break
+        return best
+
+    def get_seg_voxel_size(
+        self, entry: DatasetEntry, organelle: str, scale: int = 0,
+    ) -> tuple[float, float, float]:
+        """Return (z, y, x) voxel size of a segmentation volume at the given scale.
+
+        Default: same as raw voxel size.  Override when seg has a different
+        scale hierarchy (e.g. OpenOrganelle where seg can be at 4 nm native).
+        """
+        return self.get_voxel_size(entry, scale)
+
+    def pick_seg_scale(
+        self,
+        entry: DatasetEntry,
+        organelle: str,
+        target_nm: tuple[float, float, float],
+    ) -> int:
+        """Pick the coarsest seg scale level that's still finer than target_nm."""
+        best = 0
+        for s in range(20):
+            try:
+                vox = self.get_seg_voxel_size(entry, organelle, s)
+            except Exception:
+                break
             if all(v <= t for v, t in zip(vox, target_nm)):
                 best = s
             else:

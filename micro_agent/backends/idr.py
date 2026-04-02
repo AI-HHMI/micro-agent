@@ -53,14 +53,21 @@ class IDRBackend(Backend):
         return f"{IDR_ZARR_PREFIX}/{entry.id}.zarr/labels/{organelle}"
 
     def _read_ome_voxel_size(self, entry: DatasetEntry, scale: int = 0) -> tuple[float, float, float] | None:
-        """Read voxel sizes from OME-Zarr .zattrs multiscales metadata."""
-        cache_key = f"{entry.id}:{scale}"
-        if cache_key in self._voxel_cache:
-            return self._voxel_cache[cache_key]
-
+        """Read voxel sizes from the raw OME-Zarr .zattrs."""
         raw_path = self._resolve_raw_path(entry)
+        return self._read_ome_voxel_size_for_path(raw_path, scale)
+
+    def _read_ome_voxel_size_for_path(self, s3_path: str, scale: int = 0) -> tuple[float, float, float] | None:
+        """Read voxel sizes from an OME-Zarr .zattrs. Raises IndexError if scale is out of range."""
+        cache_key = f"{s3_path}:{scale}"
+        if cache_key in self._voxel_cache:
+            cached = self._voxel_cache[cache_key]
+            if cached is None:
+                raise IndexError(f"Scale {scale} metadata not available for {s3_path}")
+            return cached
+
         try:
-            zattrs_path = f"{raw_path}/.zattrs"
+            zattrs_path = f"{s3_path}/.zattrs"
             with self._fs.open(zattrs_path, "r") as f:
                 attrs = json.load(f)
             multiscales = attrs.get("multiscales", [])
@@ -68,36 +75,33 @@ class IDRBackend(Backend):
                 ms = multiscales[0]
                 axes = ms.get("axes", [])
                 datasets = ms.get("datasets", [])
-                idx = min(scale, len(datasets) - 1) if datasets else 0
-                if idx < len(datasets):
-                    transforms = datasets[idx].get("coordinateTransformations", [])
-                    for t in transforms:
-                        if t.get("type") == "scale":
-                            s = t["scale"]
-                            # OME-Zarr axes order varies; find spatial dims
-                            axis_names = [a.get("name", "") for a in axes] if axes else []
-                            if axis_names:
-                                # Map axis name -> scale value
-                                axis_map = dict(zip(axis_names, s))
-                                z_val = axis_map.get("z", 0)
-                                y_val = axis_map.get("y", 0)
-                                x_val = axis_map.get("x", 0)
-                                # OME-Zarr units may be micrometers
-                                unit = next(
-                                    (a.get("unit", "") for a in axes if a.get("name") == "x"),
-                                    "",
-                                )
-                                factor = 1000.0 if unit in ("micrometer", "micrometre", "µm") else 1.0
-                                if z_val > 0 and y_val > 0 and x_val > 0:
-                                    result = (z_val * factor, y_val * factor, x_val * factor)
-                                    self._voxel_cache[cache_key] = result
-                                    return result
-                            else:
-                                # No axes info — assume last 3 are (z, y, x)
-                                if len(s) >= 3:
-                                    result = (float(s[-3]), float(s[-2]), float(s[-1]))
-                                    self._voxel_cache[cache_key] = result
-                                    return result
+                if scale >= len(datasets):
+                    raise IndexError(f"Scale {scale} out of range (max {len(datasets) - 1})")
+                transforms = datasets[scale].get("coordinateTransformations", [])
+                for t in transforms:
+                    if t.get("type") == "scale":
+                        s = t["scale"]
+                        axis_names = [a.get("name", "") for a in axes] if axes else []
+                        if axis_names:
+                            axis_map = dict(zip(axis_names, s))
+                            z_val = axis_map.get("z", 0)
+                            y_val = axis_map.get("y", 0)
+                            x_val = axis_map.get("x", 0)
+                            unit = next(
+                                (a.get("unit", "") for a in axes if a.get("name") == "x"),
+                                "",
+                            )
+                            factor = 1000.0 if unit in ("micrometer", "micrometre", "µm") else 1.0
+                            if z_val > 0 and y_val > 0 and x_val > 0:
+                                result = (z_val * factor, y_val * factor, x_val * factor)
+                                self._voxel_cache[cache_key] = result
+                                return result
+                        elif len(s) >= 3:
+                            result = (float(s[-3]), float(s[-2]), float(s[-1]))
+                            self._voxel_cache[cache_key] = result
+                            return result
+        except IndexError:
+            raise
         except Exception:
             pass
         self._voxel_cache[cache_key] = None
@@ -114,6 +118,15 @@ class IDRBackend(Backend):
         if vox is not None:
             return True
         return super().has_voxel_metadata(entry)
+
+    def get_seg_voxel_size(
+        self, entry: DatasetEntry, organelle: str, scale: int = 0,
+    ) -> tuple[float, float, float]:
+        seg_path = self._resolve_seg_path(entry, organelle)
+        vox = self._read_ome_voxel_size_for_path(seg_path, scale)
+        if vox:
+            return vox
+        return self.get_voxel_size(entry, scale)
 
     def get_volume_shape(self, entry: DatasetEntry, scale: int = 0) -> tuple[int, ...]:
         arr = self._open_array(self._resolve_raw_path(entry), scale)

@@ -35,22 +35,49 @@ Cross-repository microscopy training data discovery and loading. Micro-Agent pro
 | **OpenAlex** | Fluorescence / EM | Various | Catalog only | OpenAlex literature API |
 | **BossDB** | EM | Neuroglancer Precomputed on S3 | Random-access crops (WIP) | BossDB REST API + S3 verification |
 
-## Quick start
+## Getting started
+
+### Prerequisites
+
+- [pixi](https://pixi.sh) package manager
+
+No cloud CLI tools (aws, gcloud, etc.) are required — all data access uses anonymous/public HTTP and S3 requests.
+
+### Install and run
 
 ```bash
-# Install with pixi
+# Install dependencies
 pixi install
 
-# Search the registry
-pixi run demo
-
-# Open the web explorer
-pixi run explore
-
-# Discover datasets from public repositories
+# Discover datasets from public repositories (writes discovered_datasets.json)
 pixi run discover
 
-# Run LLM-driven discovery agent
+# Launch the web explorer
+pixi run explore
+```
+
+`discover` scans 11 public repositories in parallel and saves a `discovered_datasets.json` catalog. The explorer loads this automatically, so you get the full set of datasets to browse.
+
+### Using the web explorer
+
+Once `pixi run explore` is running, open the printed URL (default `http://localhost:9000`).
+
+1. **Configure** — Pick a modality (EM / fluorescence / both), organelle, resolution, crop size, and repositories in the left panel. Toggle options like "require segmentation" or "balance repositories" as needed.
+2. **Load** — Click **Load** to initialize the loader with your settings. This queries the registry, sets up backends, and starts prefetching crops in the background.
+3. **Change settings** — If you update any filters or options, click **Load** again to apply them.
+4. **Next Crop** — Click **Next Crop** (or press **Space** / **Right Arrow**) to cycle through random crops. Each crop is displayed in the embedded neuroglancer viewer with raw image and segmentation overlay (if available).
+5. **Auto-cycle** — Enable auto-advance to automatically show a new crop every N seconds.
+6. **Metadata** — The bottom bar shows dataset ID, resolution, offset, raw/seg paths, and segmentation status for the current crop.
+
+The server binds to `0.0.0.0`, so it's accessible from other machines on the network.
+
+### Other commands
+
+```bash
+# Search the registry from the command line
+pixi run demo
+
+# Run LLM-driven discovery agent (not yet fully implemented)
 pixi run discover-agent --focus "light-sheet fluorescence"
 ```
 
@@ -321,7 +348,9 @@ Total discovered: 263 datasets
 Results saved to discovered_datasets.json
 ```
 
-### Agentic discovery
+### Agentic discovery (WIP)
+
+> **Note:** Agentic discovery is not yet fully implemented.
 
 `pixi run discover-agent` runs an LLM-driven discovery loop (`micro_agent/agent/`) that goes beyond static API queries. The agent uses tool-calling to:
 

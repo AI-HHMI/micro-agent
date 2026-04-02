@@ -32,70 +32,129 @@ class OpenOrganelleBackend(Backend):
         self._resolved_raw_paths: dict[str, str] = {}
         self._resolved_seg_paths: dict[str, str] = {}
         self._drivers: dict[str, str] = {}  # path -> "zarr" or "n5"
-        self._voxel_size_cache: dict[str, tuple[float, float, float]] = {}
+        self._num_scales_cache: dict[str, int] = {}  # path -> num_scales
+        # path -> list of (z, y, x) voxel sizes per scale level
+        self._scale_voxels_cache: dict[str, list[tuple[float, float, float]]] = {}
 
-    def get_voxel_size(self, entry: DatasetEntry, scale: int = 0) -> tuple[float, float, float]:
-        cache_key = entry.id
-        if cache_key not in self._voxel_size_cache:
-            base = self._read_base_voxel_size(entry)
-            self._voxel_size_cache[cache_key] = base
-        base = self._voxel_size_cache[cache_key]
-        factor = 2 ** scale
-        return (base[0] * factor, base[1] * factor, base[2] * factor)
+    def _read_scale_voxels(self, path: str, entry: DatasetEntry) -> list[tuple[float, float, float]]:
+        """Read per-scale voxel sizes for a volume path. Caches the result.
 
-    def _read_base_voxel_size(self, entry: DatasetEntry) -> tuple[float, float, float]:
-        """Read base voxel size from N5 or zarr attributes on S3."""
+        For zarr: reads all scales from .zattrs multiscales in one request.
+        For N5: reads s0 metadata and assumes 2x downsampling per scale.
+        """
+        if path in self._scale_voxels_cache:
+            return self._scale_voxels_cache[path]
+
         bucket = self._bucket_for(entry)
         bucket_url = f"https://{bucket}.s3.amazonaws.com"
-        ds_id = entry.id
-        # Try zarr .zattrs (OME multiscales) first — only for default bucket
-        if bucket == BUCKET:
-            zarr_zattrs_url = f"{bucket_url}/{ds_id}/{ds_id}.zarr/recon-1/em/fibsem-uint8/.zattrs"
+        voxels: list[tuple[float, float, float]] = []
+
+        # Zarr: .zattrs has all scales in one request
+        if ".zarr/" in path:
             try:
-                resp = httpx.get(zarr_zattrs_url, timeout=15)
+                resp = httpx.get(f"{bucket_url}/{path}/.zattrs", timeout=15)
                 if resp.status_code == 200:
                     attrs = resp.json()
-                    if "multiscales" in attrs:
-                        ms = attrs["multiscales"][0]
-                        datasets = ms.get("datasets", [])
-                        if datasets:
-                            transforms = datasets[0].get("coordinateTransformations", [])
-                            for t in transforms:
-                                if t.get("type") == "scale":
-                                    s = t["scale"]
-                                    # OME zarr scale is in axes order (z, y, x)
-                                    return (float(s[0]), float(s[1]), float(s[2]))
+                    ms = attrs.get("multiscales", [{}])[0]
+                    for ds in ms.get("datasets", []):
+                        for t in ds.get("coordinateTransformations", []):
+                            if t.get("type") == "scale":
+                                s = t["scale"]
+                                voxels.append((float(s[0]), float(s[1]), float(s[2])))
+                                break
             except Exception:
                 pass
 
-        # Try N5 s0/attributes.json
-        if entry.raw_path:
-            n5_attrs_url = f"{bucket_url}/{entry.raw_path}/s0/attributes.json"
-        else:
-            n5_attrs_url = f"{bucket_url}/{ds_id}/{ds_id}.n5/em/fibsem-uint16/s0/attributes.json"
-        try:
-            resp = httpx.get(n5_attrs_url, timeout=15)
-            if resp.status_code == 200:
-                attrs = resp.json()
-                if "pixelResolution" in attrs:
-                    dims = attrs["pixelResolution"]["dimensions"]
-                    # N5 pixelResolution follows data axes order [x, y, z]
-                    return (float(dims[2]), float(dims[1]), float(dims[0]))
-        except Exception:
-            pass
+        # N5: read s0, infer rest as 2x per level (also used as zarr fallback)
+        if not voxels:
+            try:
+                resp = httpx.get(f"{bucket_url}/{path}/s0/attributes.json", timeout=15)
+                if resp.status_code == 200:
+                    attrs = resp.json()
+                    if "pixelResolution" in attrs:
+                        dims = attrs["pixelResolution"]["dimensions"]
+                        # N5 pixelResolution is [x, y, z]
+                        base = (float(dims[2]), float(dims[1]), float(dims[0]))
+                        num = self._read_num_scales(path)
+                        for s in range(num):
+                            f = 2 ** s
+                            voxels.append((base[0] * f, base[1] * f, base[2] * f))
+            except Exception:
+                pass
 
-        # Fallback to registry or default
-        if entry.voxel_size_nm and len(entry.voxel_size_nm) >= 3 and any(v > 0 for v in entry.voxel_size_nm[:3]):
-            return (entry.voxel_size_nm[0], entry.voxel_size_nm[1], entry.voxel_size_nm[2])
-        return self._DEFAULT_VOXEL_NM
+        # Last-resort fallback from registry metadata
+        if not voxels:
+            if entry.voxel_size_nm and len(entry.voxel_size_nm) >= 3 and any(v > 0 for v in entry.voxel_size_nm[:3]):
+                base = (entry.voxel_size_nm[0], entry.voxel_size_nm[1], entry.voxel_size_nm[2])
+            else:
+                base = self._DEFAULT_VOXEL_NM
+            num = self._read_num_scales(path)
+            for s in range(num):
+                f = 2 ** s
+                voxels.append((base[0] * f, base[1] * f, base[2] * f))
+
+        self._scale_voxels_cache[path] = voxels
+        return voxels
+
+    def get_voxel_size(self, entry: DatasetEntry, scale: int = 0) -> tuple[float, float, float]:
+        raw_path = entry.raw_path or f"{entry.id}/{entry.id}.n5/em/fibsem-uint16"
+        voxels = self._read_scale_voxels(raw_path, entry)
+        if scale >= len(voxels):
+            raise IndexError(f"Scale {scale} out of range (max {len(voxels) - 1}) for {entry.id}")
+        return voxels[scale]
+
+    def _read_num_scales(self, path: str) -> int:
+        """Probe how many scale levels exist for a given volume path."""
+        if path in self._num_scales_cache:
+            return self._num_scales_cache[path]
+
+        bucket_url = f"https://{BUCKET}.s3.amazonaws.com"
+
+        # For zarr, read from .zattrs multiscales datasets list
+        if ".zarr/" in path:
+            try:
+                resp = httpx.get(f"{bucket_url}/{path}/.zattrs", timeout=15)
+                if resp.status_code == 200:
+                    attrs = resp.json()
+                    ms = attrs.get("multiscales", [{}])[0]
+                    n = len(ms.get("datasets", []))
+                    if n > 0:
+                        self._num_scales_cache[path] = n
+                        return n
+            except Exception:
+                pass
+
+        # For N5, probe s0, s1, ... until we get a 404
+        for s in range(10):
+            try:
+                resp = httpx.get(f"{bucket_url}/{path}/s{s}/attributes.json", timeout=5)
+                if resp.status_code != 200:
+                    n = max(s, 1)
+                    self._num_scales_cache[path] = n
+                    return n
+            except Exception:
+                n = max(s, 1)
+                self._num_scales_cache[path] = n
+                return n
+
+        self._num_scales_cache[path] = 6
+        return 6
+
+    def get_seg_voxel_size(
+        self, entry: DatasetEntry, organelle: str, scale: int = 0,
+    ) -> tuple[float, float, float]:
+        seg_path, _ = self._resolve_seg_paths(entry, organelle)
+        voxels = self._read_scale_voxels(seg_path, entry)
+        if scale >= len(voxels):
+            raise IndexError(f"Seg scale {scale} out of range (max {len(voxels) - 1}) for {entry.id}/{organelle}")
+        return voxels[scale]
+
 
     def has_voxel_metadata(self, entry: DatasetEntry) -> bool:
         """OpenOrganelle reads voxel sizes from zarr/N5 attributes."""
-        # Trigger the read so the cache is populated
         try:
-            self.get_voxel_size(entry, 0)
-            vox = self._voxel_size_cache.get(entry.id)
-            return vox is not None and vox != self._DEFAULT_VOXEL_NM
+            vox = self.get_voxel_size(entry, 0)
+            return vox != self._DEFAULT_VOXEL_NM
         except Exception:
             return super().has_voxel_metadata(entry)
 
@@ -122,47 +181,25 @@ class OpenOrganelleBackend(Backend):
         }
         return ts.open(spec, read=True).result()
 
-    def _open_with_fallback(self, zarr_path: str, n5_path: str, scale: int, bucket: str = BUCKET) -> tuple[ts.TensorStore, str, str]:
-        """Try zarr first, fall back to N5. Returns (store, actual_path, driver)."""
-        try:
-            arr = self._open_array(zarr_path, scale, driver="zarr", bucket=bucket)
-            return arr, zarr_path, "zarr"
-        except Exception:
-            arr = self._open_array(n5_path, scale, driver="n5", bucket=bucket)
-            return arr, n5_path, "n5"
-
-    def _resolve_paths(self, entry: DatasetEntry) -> tuple[str, str, str]:
-        """Return (zarr_path, n5_path, bucket) for raw EM data."""
+    def _resolve_paths(self, entry: DatasetEntry) -> tuple[str, str]:
+        """Return (path, bucket) for raw EM data using the stored raw_path."""
         bucket = self._bucket_for(entry)
-        # For non-default buckets, use raw_path directly (no zarr guess)
         if entry.raw_path:
-            n5_path = entry.raw_path
-        else:
-            ds_id = entry.id
-            n5_path = f"{ds_id}/{ds_id}.n5/em/fibsem-uint16"
-        # Zarr path only makes sense for the standard bucket layout
-        if bucket == BUCKET:
-            ds_id = entry.id
-            zarr_path = f"{ds_id}/{ds_id}.zarr/recon-1/em/fibsem-uint8"
-        else:
-            # No zarr equivalent — force N5 by using same path
-            zarr_path = n5_path
-        return zarr_path, n5_path, bucket
+            return entry.raw_path, bucket
+        ds_id = entry.id
+        return f"{ds_id}/{ds_id}.n5/em/fibsem-uint16", bucket
 
-    def _resolve_seg_paths(self, entry: DatasetEntry, organelle: str) -> tuple[str, str, str]:
-        """Return (zarr_path, n5_path, bucket) for segmentation data."""
+    def _resolve_seg_paths(self, entry: DatasetEntry, organelle: str) -> tuple[str, str]:
+        """Return (path, bucket) for segmentation data using stored paths."""
         bucket = self._bucket_for(entry)
         if organelle in entry.segmentation_paths:
-            n5_path = entry.segmentation_paths[organelle]
-        else:
-            ds_id = entry.id
-            n5_path = f"{ds_id}/{ds_id}.n5/labels/{organelle}_seg"
-        if bucket == BUCKET:
-            ds_id = entry.id
-            zarr_path = f"{ds_id}/{ds_id}.zarr/recon-1/labels/{organelle}_seg"
-        else:
-            zarr_path = n5_path
-        return zarr_path, n5_path, bucket
+            return entry.segmentation_paths[organelle], bucket
+        ds_id = entry.id
+        return f"{ds_id}/{ds_id}.n5/labels/{organelle}_seg", bucket
+
+    def _detect_driver(self, path: str) -> str:
+        """Detect driver from path: zarr if path contains .zarr/, else n5."""
+        return "zarr" if ".zarr/" in path else "n5"
 
     def _read_crop(
         self, arr: ts.TensorStore, driver: str,
@@ -185,11 +222,17 @@ class OpenOrganelleBackend(Backend):
             data = arr[z : z + dz, y : y + dy, x : x + dx].read().result()
             return np.asarray(data)
 
+    def _open_path(self, path: str, scale: int, bucket: str) -> tuple[ts.TensorStore, str]:
+        """Open an array at the given path, returning (store, driver)."""
+        driver = self._detect_driver(path)
+        arr = self._open_array(path, scale, driver=driver, bucket=bucket)
+        return arr, driver
+
     def get_volume_shape(self, entry: DatasetEntry, scale: int = 0) -> tuple[int, ...]:
-        zarr_path, n5_path, bucket = self._resolve_paths(entry)
-        arr, actual, driver = self._open_with_fallback(zarr_path, n5_path, scale, bucket)
-        self._resolved_raw_paths[entry.id] = actual
-        self._drivers[actual] = driver
+        path, bucket = self._resolve_paths(entry)
+        arr, driver = self._open_path(path, scale, bucket)
+        self._resolved_raw_paths[entry.id] = path
+        self._drivers[path] = driver
         shape = tuple(arr.shape)
         if driver == "n5":
             # N5 shape is (x, y, z) — return as (z, y, x)
@@ -203,10 +246,10 @@ class OpenOrganelleBackend(Backend):
         shape: tuple[int, int, int],
         scale: int = 0,
     ) -> NDArray:
-        zarr_path, n5_path, bucket = self._resolve_paths(entry)
-        arr, actual, driver = self._open_with_fallback(zarr_path, n5_path, scale, bucket)
-        self._resolved_raw_paths[entry.id] = actual
-        self._drivers[actual] = driver
+        path, bucket = self._resolve_paths(entry)
+        arr, driver = self._open_path(path, scale, bucket)
+        self._resolved_raw_paths[entry.id] = path
+        self._drivers[path] = driver
 
         return self._read_crop(arr, driver, offset, shape)
 
@@ -218,10 +261,10 @@ class OpenOrganelleBackend(Backend):
         shape: tuple[int, int, int],
         scale: int = 0,
     ) -> NDArray:
-        zarr_path, n5_path, bucket = self._resolve_seg_paths(entry, organelle)
-        arr, actual, driver = self._open_with_fallback(zarr_path, n5_path, scale, bucket)
-        self._resolved_seg_paths[f"{entry.id}/{organelle}"] = actual
-        self._drivers[actual] = driver
+        path, bucket = self._resolve_seg_paths(entry, organelle)
+        arr, driver = self._open_path(path, scale, bucket)
+        self._resolved_seg_paths[f"{entry.id}/{organelle}"] = path
+        self._drivers[path] = driver
 
         data = self._read_crop(arr, driver, offset, shape)
         # Keep instance labels as uint32 for proper neuroglancer display
