@@ -77,7 +77,7 @@ The server binds to `0.0.0.0`, so it's accessible from other machines on the net
 # Search the registry from the command line
 pixi run demo
 
-# Run LLM-driven discovery agent
+# Run LLM-driven discovery agent (not yet fully implemented)
 pixi run discover-agent --focus "light-sheet fluorescence"
 ```
 
@@ -348,7 +348,9 @@ Total discovered: 263 datasets
 Results saved to discovered_datasets.json
 ```
 
-### Agentic discovery
+### Agentic discovery (WIP)
+
+> **Note:** Agentic discovery is not yet fully implemented.
 
 `pixi run discover-agent` runs an LLM-driven discovery loop (`micro_agent/agent/`) that goes beyond static API queries. The agent uses tool-calling to:
 
