@@ -33,6 +33,7 @@ class OpenOrganelleBackend(Backend):
         self._resolved_seg_paths: dict[str, str] = {}
         self._drivers: dict[str, str] = {}  # path -> "zarr" or "n5"
         self._voxel_size_cache: dict[str, tuple[float, float, float]] = {}
+        self._num_scales_cache: dict[str, int] = {}  # path -> num_scales
 
     def get_voxel_size(self, entry: DatasetEntry, scale: int = 0) -> tuple[float, float, float]:
         cache_key = entry.id
@@ -89,6 +90,47 @@ class OpenOrganelleBackend(Backend):
             return (entry.voxel_size_nm[0], entry.voxel_size_nm[1], entry.voxel_size_nm[2])
         return self._DEFAULT_VOXEL_NM
 
+    def _read_num_scales(self, path: str) -> int:
+        """Probe how many scale levels exist for a given volume path."""
+        if path in self._num_scales_cache:
+            return self._num_scales_cache[path]
+
+        bucket_url = f"https://{BUCKET}.s3.amazonaws.com"
+
+        # For zarr, read from .zattrs multiscales datasets list
+        if ".zarr/" in path:
+            try:
+                resp = httpx.get(f"{bucket_url}/{path}/.zattrs", timeout=15)
+                if resp.status_code == 200:
+                    attrs = resp.json()
+                    ms = attrs.get("multiscales", [{}])[0]
+                    n = len(ms.get("datasets", []))
+                    if n > 0:
+                        self._num_scales_cache[path] = n
+                        return n
+            except Exception:
+                pass
+
+        # For N5, probe s0, s1, ... until we get a 404
+        for s in range(10):
+            try:
+                resp = httpx.get(f"{bucket_url}/{path}/s{s}/attributes.json", timeout=5)
+                if resp.status_code != 200:
+                    n = max(s, 1)
+                    self._num_scales_cache[path] = n
+                    return n
+            except Exception:
+                n = max(s, 1)
+                self._num_scales_cache[path] = n
+                return n
+
+        self._num_scales_cache[path] = 6
+        return 6
+
+    def get_num_scales(self, entry: DatasetEntry) -> int:
+        raw_path = entry.raw_path or f"{entry.id}/{entry.id}.n5/em/fibsem-uint16"
+        return self._read_num_scales(raw_path)
+
     def get_seg_voxel_size(
         self, entry: DatasetEntry, organelle: str, scale: int = 0,
     ) -> tuple[float, float, float]:
@@ -141,24 +183,8 @@ class OpenOrganelleBackend(Backend):
         return self._read_base_voxel_size(entry)
 
     def get_seg_num_scales(self, entry: DatasetEntry, organelle: str) -> int:
-        bucket = self._bucket_for(entry)
-        bucket_url = f"https://{bucket}.s3.amazonaws.com"
         seg_path, _ = self._resolve_seg_paths(entry, organelle)
-        for s in range(10):
-            url = f"{bucket_url}/{seg_path}/s{s}/attributes.json"
-            try:
-                resp = httpx.get(url, timeout=5)
-                if resp.status_code != 200:
-                    # Also check zarr
-                    if ".zarr/" not in seg_path:
-                        return max(s, 1)
-                    zurl = f"{bucket_url}/{seg_path}/s{s}/.zattrs"
-                    resp2 = httpx.get(zurl, timeout=5)
-                    if resp2.status_code != 200:
-                        return max(s, 1)
-            except Exception:
-                return max(s, 1)
-        return 6
+        return self._read_num_scales(seg_path)
 
     def has_voxel_metadata(self, entry: DatasetEntry) -> bool:
         """OpenOrganelle reads voxel sizes from zarr/N5 attributes."""
