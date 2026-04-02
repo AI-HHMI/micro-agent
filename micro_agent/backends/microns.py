@@ -44,20 +44,25 @@ class MICrONSBackend(Backend):
         self._info_cache[url] = info
         return info
 
+    def _get_voxel_size_from_info(self, url: str, scale: int) -> tuple[float, float, float]:
+        """Read voxel size from neuroglancer precomputed info at the given scale.
+
+        Raises IndexError if scale is out of range.
+        """
+        info = self._fetch_info(url)
+        scales = info["scales"]
+        res = scales[scale]["resolution"]  # raises IndexError if out of range
+        return (float(res[2]), float(res[1]), float(res[0]))
+
     def get_voxel_size(self, entry: DatasetEntry, scale: int = 0) -> tuple[float, float, float]:
-        url = self._resolve_raw_url(entry)
         try:
-            info = self._fetch_info(url)
-            scales = info["scales"]
-            idx = min(scale, len(scales) - 1)
-            res = scales[idx]["resolution"]
-            # neuroglancer precomputed resolution is [x, y, z] in nm
-            return (float(res[2]), float(res[1]), float(res[0]))
+            return self._get_voxel_size_from_info(self._resolve_raw_url(entry), scale)
+        except (IndexError, KeyError):
+            raise
         except Exception:
             return super().get_voxel_size(entry, scale)
 
     def has_voxel_metadata(self, entry: DatasetEntry) -> bool:
-        """MICrONS reads voxel sizes from neuroglancer precomputed /info."""
         url = self._resolve_raw_url(entry)
         try:
             info = self._fetch_info(url)
@@ -65,34 +70,15 @@ class MICrONSBackend(Backend):
         except Exception:
             return super().has_voxel_metadata(entry)
 
-    def get_num_scales(self, entry: DatasetEntry) -> int:
-        url = self._resolve_raw_url(entry)
-        try:
-            info = self._fetch_info(url)
-            return len(info["scales"])
-        except Exception:
-            return 6
-
     def get_seg_voxel_size(
         self, entry: DatasetEntry, organelle: str, scale: int = 0,
     ) -> tuple[float, float, float]:
-        url = self._resolve_seg_url(entry, organelle)
         try:
-            info = self._fetch_info(url)
-            scales = info["scales"]
-            idx = min(scale, len(scales) - 1)
-            res = scales[idx]["resolution"]
-            return (float(res[2]), float(res[1]), float(res[0]))
+            return self._get_voxel_size_from_info(self._resolve_seg_url(entry, organelle), scale)
+        except (IndexError, KeyError):
+            raise
         except Exception:
             return self.get_voxel_size(entry, scale)
-
-    def get_seg_num_scales(self, entry: DatasetEntry, organelle: str) -> int:
-        url = self._resolve_seg_url(entry, organelle)
-        try:
-            info = self._fetch_info(url)
-            return len(info["scales"])
-        except Exception:
-            return self.get_num_scales(entry)
 
     @lru_cache(maxsize=16)
     def _open_array(self, url: str, scale: int) -> ts.TensorStore:

@@ -36,6 +36,10 @@ class OpenOrganelleBackend(Backend):
         self._num_scales_cache: dict[str, int] = {}  # path -> num_scales
 
     def get_voxel_size(self, entry: DatasetEntry, scale: int = 0) -> tuple[float, float, float]:
+        raw_path = entry.raw_path or f"{entry.id}/{entry.id}.n5/em/fibsem-uint16"
+        num = self._read_num_scales(raw_path)
+        if scale >= num:
+            raise IndexError(f"Scale {scale} out of range (max {num - 1}) for {entry.id}")
         cache_key = entry.id
         if cache_key not in self._voxel_size_cache:
             base = self._read_base_voxel_size(entry)
@@ -127,13 +131,13 @@ class OpenOrganelleBackend(Backend):
         self._num_scales_cache[path] = 6
         return 6
 
-    def get_num_scales(self, entry: DatasetEntry) -> int:
-        raw_path = entry.raw_path or f"{entry.id}/{entry.id}.n5/em/fibsem-uint16"
-        return self._read_num_scales(raw_path)
-
     def get_seg_voxel_size(
         self, entry: DatasetEntry, organelle: str, scale: int = 0,
     ) -> tuple[float, float, float]:
+        seg_path, _ = self._resolve_seg_paths(entry, organelle)
+        num = self._read_num_scales(seg_path)
+        if scale >= num:
+            raise IndexError(f"Seg scale {scale} out of range (max {num - 1}) for {entry.id}/{organelle}")
         cache_key = f"{entry.id}/{organelle}"
         if cache_key not in self._voxel_size_cache:
             base = self._read_seg_base_voxel_size(entry, organelle)
@@ -182,9 +186,6 @@ class OpenOrganelleBackend(Backend):
         # Fall back to raw voxel size
         return self._read_base_voxel_size(entry)
 
-    def get_seg_num_scales(self, entry: DatasetEntry, organelle: str) -> int:
-        seg_path, _ = self._resolve_seg_paths(entry, organelle)
-        return self._read_num_scales(seg_path)
 
     def has_voxel_metadata(self, entry: DatasetEntry) -> bool:
         """OpenOrganelle reads voxel sizes from zarr/N5 attributes."""

@@ -74,6 +74,8 @@ class BioImageBackend(Backend):
         return (img.dims.Z, img.dims.Y, img.dims.X)
 
     def get_voxel_size(self, entry: DatasetEntry, scale: int = 0) -> tuple[float, float, float]:
+        if scale > 0:
+            raise IndexError(f"BioImage backend only supports scale 0 (requested {scale})")
         img = self._open(self._resolve_path(entry))
         ps = img.physical_pixel_sizes
         # bioio returns physical sizes in micrometers; convert to nanometers
@@ -113,9 +115,6 @@ class BioImageBackend(Backend):
         except Exception:
             return super().has_voxel_metadata(entry)
 
-    def get_num_scales(self, entry: DatasetEntry) -> int:
-        # bioio doesn't expose multiscale pyramids directly; return 1
-        return 1
 
     def read_raw_crop(
         self,
