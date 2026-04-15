@@ -18,6 +18,7 @@ version = "0.1.0"
 mcp = ["mcp>=1.0.0"]
 fluorescence = ["bioio", "bioio-ome-tiff", "bioio-tifffile", "bioio-czi", "bioio-lif", "bioio-nd2"]
 agent = ["anthropic", "litellm<1.81"]
+tensorswitch = ["tensorswitch>=2.0.1"]
 
 [build-system]
 build-backend = "hatchling.build"
