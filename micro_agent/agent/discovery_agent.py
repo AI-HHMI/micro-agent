@@ -154,11 +154,10 @@ async def _main() -> None:
     parser = argparse.ArgumentParser(description="Agentic microscopy dataset discovery")
     parser.add_argument("--focus", default="", help="Focus query for the discovery cycle")
     parser.add_argument("--output", default="discovered_datasets.json", help="Output JSON path")
-    parser.add_argument("--provider", default=None, help="LLM provider (anthropic or litellm)")
-    parser.add_argument("--model", default=None, help="LLM model name")
+    parser.add_argument("--model", default=None, help="LLM model name (routed via litellm)")
     args = parser.parse_args()
 
-    llm = AgentLLM(provider=args.provider, model=args.model)
+    llm = AgentLLM(model=args.model)
     agent = DiscoveryAgent(llm=llm)
     await agent.run_and_save(focus=args.focus, output_path=args.output)
 
