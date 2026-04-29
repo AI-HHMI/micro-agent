@@ -37,6 +37,7 @@ class DownloadedVolume:
     resolution_nm: list[float]
     scale_used: int
     has_segmentation: bool
+    has_pyramid: bool
     raw_dtype: str
     size_bytes: int
     raw_source: str
@@ -57,6 +58,13 @@ class DataDownloader:
     subvolume from each, distributing a total size budget evenly across
     datasets.
 
+    Output is a single OME-Zarr v3 container per dataset with nested structure:
+    - ``{dataset_id}.zarr/raw/s0`` for raw image data
+    - ``{dataset_id}.zarr/labels/{organelle}/s0`` for segmentation
+
+    With ``generate_pyramid=True``, multiscale pyramid levels (s1, s2, ...)
+    are generated automatically after download.
+
     Args:
         save_path: Root directory for downloaded data.
         organelle: Filter by organelle (e.g. "mito", "er").
@@ -70,6 +78,7 @@ class DataDownloader:
         modality_class: Filter by modality ("em", "fluorescence", or "").
         slab_size: Number of Z-slices to read/write at a time. Controls
             peak memory usage.
+        generate_pyramid: If True, generate multiscale pyramid after download.
     """
 
     _EXCLUDED_REPOS = {"EMPIAR"}
@@ -85,6 +94,7 @@ class DataDownloader:
         seed: int | None = None,
         modality_class: str = "",
         slab_size: int = 64,
+        generate_pyramid: bool = False,
     ) -> None:
         self.save_path = Path(save_path)
         self.organelle = organelle
@@ -94,6 +104,7 @@ class DataDownloader:
         self.seed = seed
         self.modality_class = modality_class
         self.slab_size = slab_size
+        self.generate_pyramid = generate_pyramid
 
         self._registry = Registry()
         self._datasets = self._find_datasets(organelle, repositories, require_segmentation, modality_class)
@@ -229,10 +240,15 @@ class DataDownloader:
         offset: tuple[int, int, int],
         shape: tuple[int, int, int],
         voxel_nm: tuple[float, float, float],
-        out_dir: Path,
+        container_path: Path,
         label: str = "raw",
+        organelle: str = "",
     ) -> int:
         """Download a subvolume in Z-slabs via tensorswitch Zarr3Writer.
+
+        Writes into a single OME-Zarr container with nested structure:
+        - raw data: container_path/raw/s0
+        - segmentation: container_path/labels/{organelle}/s0
 
         Returns bytes written to disk.
         """
@@ -242,28 +258,26 @@ class DataDownloader:
 
         # Probe dtype from a tiny read
         probe = (
-            backend.read_segmentation_crop(entry, self.organelle, offset, (1, 1, 1), scale)
+            backend.read_segmentation_crop(entry, organelle, offset, (1, 1, 1), scale)
             if is_seg
             else backend.read_raw_crop(entry, offset, (1, 1, 1), scale)
         )
         dtype = str(probe.dtype)
 
-        zarr_path = out_dir / f"{label}.zarr"
-        chunk_z = min(self.slab_size, sz)
-
         writer = Zarr3Writer(
-            str(zarr_path),
-            use_sharding=False,
+            str(container_path),
+            use_sharding=True,
             compression="zstd",
             compression_level=3,
             data_type="labels" if is_seg else "image",
             image_key="raw",
-            label_key=label,
+            label_key=organelle if organelle else "segmentation",
         )
+        # chunk_shape=None lets TensorSwitch auto-calculate (default 64³ for spatial)
         spec = writer.create_output_spec(
             shape=(sz, sy, sx),
             dtype=dtype,
-            chunk_shape=(chunk_z, sy, sx),
+            chunk_shape=None,
         )
         store = writer.open_store(spec, create=True, delete_existing=True)
 
@@ -274,7 +288,7 @@ class DataDownloader:
 
             if is_seg:
                 slab = backend.read_segmentation_crop(
-                    entry, self.organelle, slab_offset, slab_shape, scale,
+                    entry, organelle, slab_offset, slab_shape, scale,
                 )
             else:
                 slab = backend.read_raw_crop(entry, slab_offset, slab_shape, scale)
@@ -290,9 +304,41 @@ class DataDownloader:
             voxel_unit="nanometer",
         )
 
-        # Compute actual disk size
-        size = sum(f.stat().st_size for f in zarr_path.rglob("*") if f.is_file())
+        # Compute actual disk size for the written layer
+        if is_seg:
+            layer_path = container_path / "labels" / (organelle if organelle else "segmentation")
+        else:
+            layer_path = container_path / "raw"
+        size = sum(f.stat().st_size for f in layer_path.rglob("*") if f.is_file()) if layer_path.exists() else 0
         return size
+
+    def _generate_pyramids(self, container_path: Path, has_seg: bool, organelle: str) -> None:
+        """Generate multiscale pyramids for raw and segmentation layers."""
+        from tensorswitch_v2.__main__ import find_base_level, run_local_pyramid
+
+        # Raw pyramid
+        raw_group = container_path / "raw"
+        if raw_group.exists():
+            try:
+                s0_path, _ = find_base_level(str(raw_group))
+                root_path = str(raw_group)
+                print(f"    Generating raw pyramid from {s0_path}")
+                run_local_pyramid(s0_path, root_path, downsample_method="mean", verbose=False)
+            except Exception as e:
+                print(f"    Raw pyramid generation failed: {e}")
+
+        # Segmentation pyramid
+        if has_seg:
+            seg_key = organelle if organelle else "segmentation"
+            seg_group = container_path / "labels" / seg_key
+            if seg_group.exists():
+                try:
+                    s0_path, _ = find_base_level(str(seg_group))
+                    root_path = str(seg_group)
+                    print(f"    Generating segmentation pyramid from {s0_path}")
+                    run_local_pyramid(s0_path, root_path, downsample_method="mode", verbose=False)
+                except Exception as e:
+                    print(f"    Segmentation pyramid generation failed: {e}")
 
     def run(self) -> DownloadReport:
         """Download subvolumes from all matching datasets within the size budget."""
@@ -344,12 +390,18 @@ class DataDownloader:
             offset, shape = self._compute_subvolume(vol_shape, budget_per_dataset, total_bpv)
             print(f"    subvolume: offset={offset}, shape={shape}")
 
-            out_dir = self.save_path / organelle_dir / entry.id
+            out_dir = self.save_path / organelle_dir
             out_dir.mkdir(parents=True, exist_ok=True)
+
+            # Single OME-Zarr container for both raw and segmentation
+            container_path = out_dir / f"{entry.id}.zarr"
 
             # Download raw
             try:
-                raw_size = self._download_volume(entry, backend, scale, offset, shape, voxel_nm, out_dir, "raw")
+                raw_size = self._download_volume(
+                    entry, backend, scale, offset, shape, voxel_nm,
+                    container_path, label="raw",
+                )
             except Exception as e:
                 print(f"    raw download failed: {e}")
                 continue
@@ -362,16 +414,23 @@ class DataDownloader:
                     seg_scale = backend.pick_seg_scale(entry, self.organelle, voxel_nm)
                     seg_voxel_nm = backend.get_seg_voxel_size(entry, self.organelle, seg_scale)
                     seg_size = self._download_volume(
-                        entry, backend, seg_scale, offset, shape, seg_voxel_nm, out_dir, "seg",
+                        entry, backend, seg_scale, offset, shape, seg_voxel_nm,
+                        container_path, label="seg", organelle=self.organelle,
                     )
                     has_seg = True
                 except Exception as e:
                     print(f"    seg download failed (may have different bounds): {e}")
 
+            # Generate pyramids if requested
+            has_pyramid = False
+            if self.generate_pyramid:
+                self._generate_pyramids(container_path, has_seg, self.organelle)
+                has_pyramid = True
+
             vol_size = raw_size + seg_size
             total_bytes += vol_size
 
-            # Write metadata as zarr group attrs
+            # Write per-dataset metadata
             meta = {
                 "dataset_id": entry.id,
                 "repository": entry.repository,
@@ -381,14 +440,15 @@ class DataDownloader:
                 "resolution_nm": list(voxel_nm),
                 "scale_used": scale,
                 "has_segmentation": has_seg,
+                "has_pyramid": has_pyramid,
                 "raw_source": entry.raw_path or entry.access_url,
             }
-            meta_path = out_dir / "metadata.json"
+            meta_path = out_dir / f"{entry.id}_metadata.json"
             meta_path.write_text(json.dumps(meta, indent=2))
 
             manifest_entries.append(
                 DownloadedVolume(
-                    zarr_path=f"{organelle_dir}/{entry.id}",
+                    zarr_path=f"{organelle_dir}/{entry.id}.zarr",
                     dataset_id=entry.id,
                     repository=entry.repository,
                     organelle=self.organelle,
@@ -397,6 +457,7 @@ class DataDownloader:
                     resolution_nm=list(voxel_nm),
                     scale_used=scale,
                     has_segmentation=has_seg,
+                    has_pyramid=has_pyramid,
                     raw_dtype=str(probe.dtype),
                     size_bytes=vol_size,
                     raw_source=entry.raw_path or entry.access_url,
@@ -408,7 +469,7 @@ class DataDownloader:
         # Write manifest
         manifest_path = self.save_path / "manifest.json"
         manifest = {
-            "version": 1,
+            "version": 2,
             "created": datetime.now(timezone.utc).isoformat(),
             "parameters": {
                 "organelle": self.organelle,
@@ -416,6 +477,7 @@ class DataDownloader:
                 "max_size_gb": self.max_size_gb,
                 "require_segmentation": self.require_segmentation,
                 "modality_class": self.modality_class,
+                "generate_pyramid": self.generate_pyramid,
             },
             "summary": {
                 "num_volumes": len(manifest_entries),
@@ -477,6 +539,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "--slab-size", type=int, default=64, help="Z-slices per read (controls memory usage)",
     )
+    parser.add_argument(
+        "--generate-pyramid", action="store_true", help="Generate multiscale pyramid after download",
+    )
 
     args = parser.parse_args()
 
@@ -490,5 +555,6 @@ if __name__ == "__main__":
         seed=args.seed,
         modality_class=args.modality_class,
         slab_size=args.slab_size,
+        generate_pyramid=args.generate_pyramid,
     )
     report = downloader.run()

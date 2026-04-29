@@ -26,6 +26,7 @@ from micro_agent.backends.microns import MICrONSBackend
 from micro_agent.backends.empiar import EMPIARBackend
 from micro_agent.backends.idr import IDRBackend
 from micro_agent.backends.bioimage import BioImageBackend
+from micro_agent.backends.tensorswitch import TensorSwitchBackend
 
 
 @dataclass
@@ -68,6 +69,7 @@ def _get_backend(repository: str) -> Backend:
         "CellImageLibrary": BioImageBackend,
         "Zenodo": BioImageBackend,
         "BossDB": MICrONSBackend,
+        "TensorSwitch": TensorSwitchBackend,
     }
     backend_cls = backends.get(repository)
     if backend_cls is None:

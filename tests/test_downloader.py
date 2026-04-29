@@ -188,8 +188,8 @@ def test_centered_subvolume_when_budget_is_tight(tmp_path, patched_downloader):
     assert (oz, oy, ox) == (expected_offset, expected_offset, expected_offset)
 
 
-def test_writes_one_directory_per_dataset(tmp_path, patched_downloader):
-    """Multiple datasets produce one output directory per id, under organelle/."""
+def test_writes_one_container_per_dataset(tmp_path, patched_downloader):
+    """Multiple datasets produce one OME-Zarr container per id, under organelle/."""
     entries = [_make_entry(f"ds_{i}") for i in range(3)]
     d = patched_downloader(
         entries,
@@ -202,16 +202,17 @@ def test_writes_one_directory_per_dataset(tmp_path, patched_downloader):
 
     organelle_dir = tmp_path / "mito"
     assert organelle_dir.is_dir()
-    subdirs = sorted(p.name for p in organelle_dir.iterdir() if p.is_dir())
-    assert subdirs == ["ds_0", "ds_1", "ds_2"]
-    for ds_id in subdirs:
-        assert (organelle_dir / ds_id / "raw.zarr").is_dir()
-        assert (organelle_dir / ds_id / "seg.zarr").is_dir()
-        assert (organelle_dir / ds_id / "metadata.json").is_file()
+    containers = sorted(p.name for p in organelle_dir.iterdir() if p.suffix == ".zarr")
+    assert containers == ["ds_0.zarr", "ds_1.zarr", "ds_2.zarr"]
+    for ds_id in ("ds_0", "ds_1", "ds_2"):
+        container = organelle_dir / f"{ds_id}.zarr"
+        assert (container / "raw" / "s0").is_dir()
+        assert (container / "labels" / "mito" / "s0").is_dir()
+        assert (organelle_dir / f"{ds_id}_metadata.json").is_file()
 
 
 def test_raw_only_no_segmentation(tmp_path, patched_downloader):
-    """With require_segmentation=False, only raw.zarr is written."""
+    """With require_segmentation=False, only raw is written — no labels group."""
     entry = _make_entry("ds_raw", has_segmentation=False)
     d = patched_downloader(
         [entry],
@@ -222,9 +223,9 @@ def test_raw_only_no_segmentation(tmp_path, patched_downloader):
     )
     d.run()
 
-    out_dir = tmp_path / "all" / "ds_raw"
-    assert (out_dir / "raw.zarr").is_dir()
-    assert not (out_dir / "seg.zarr").exists()
+    container = tmp_path / "all" / "ds_raw.zarr"
+    assert (container / "raw" / "s0").is_dir()
+    assert not (container / "labels").exists()
 
 
 def test_manifest_records_per_dataset_offsets_and_shapes(tmp_path, patched_downloader):
@@ -263,8 +264,9 @@ def test_roundtrip_raw_and_seg_match_fake_backend(tmp_path, patched_downloader, 
     )
     d.run()
 
-    raw_array_path = tmp_path / "mito" / "ds_roundtrip" / "raw.zarr" / "raw" / "s0"
-    seg_array_path = tmp_path / "mito" / "ds_roundtrip" / "seg.zarr" / "labels" / "seg" / "s0"
+    container = tmp_path / "mito" / "ds_roundtrip.zarr"
+    raw_array_path = container / "raw" / "s0"
+    seg_array_path = container / "labels" / "mito" / "s0"
 
     raw_disk = ts.open({
         "driver": "zarr3",
@@ -279,6 +281,12 @@ def test_roundtrip_raw_and_seg_match_fake_backend(tmp_path, patched_downloader, 
     assert seg_disk.shape == fake_backend.seg.shape
     assert np.array_equal(np.asarray(raw_disk), fake_backend.raw)
     assert np.array_equal(np.asarray(seg_disk), fake_backend.seg)
+
+    # Verify sharding is enabled (PR #2's headline claim).
+    raw_spec = json.loads((raw_array_path / "zarr.json").read_text())
+    assert any(c["name"] == "sharding_indexed" for c in raw_spec["codecs"]), (
+        "expected sharding_indexed codec — sharding regression"
+    )
 
 
 def test_different_repositories_use_per_repo_backend_lookup(
@@ -316,4 +324,4 @@ def test_different_repositories_use_per_repo_backend_lookup(
     # _get_backend is called once per unique repository encountered.
     assert sorted(set(seen_repos)) == ["MICrONS", "OpenOrganelle"]
     for ds_id in ("ds_oo", "ds_microns"):
-        assert (tmp_path / "mito" / ds_id / "raw.zarr").is_dir()
+        assert (tmp_path / "mito" / f"{ds_id}.zarr" / "raw" / "s0").is_dir()

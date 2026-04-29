@@ -6,6 +6,7 @@ from micro_agent.backends.microns import MICrONSBackend
 from micro_agent.backends.empiar import EMPIARBackend
 from micro_agent.backends.idr import IDRBackend
 from micro_agent.backends.bioimage import BioImageBackend
+from micro_agent.backends.tensorswitch import TensorSwitchBackend
 
 __all__ = [
     "Backend",
@@ -14,4 +15,5 @@ __all__ = [
     "EMPIARBackend",
     "IDRBackend",
     "BioImageBackend",
+    "TensorSwitchBackend",
 ]
