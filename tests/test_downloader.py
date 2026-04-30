@@ -289,6 +289,131 @@ def test_roundtrip_raw_and_seg_match_fake_backend(tmp_path, patched_downloader, 
     )
 
 
+class OffCenterFakeBackend(FakeBackend):
+    """Fake backend whose seg labels live in a corner — so a centered crop misses them."""
+
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.seg = np.zeros_like(self.seg)
+        sz, sy, sx = self.volume_shape
+        # Put labels in the (0:sz/4, 0:sy/4, 0:sx/4) corner only.
+        self.seg[: sz // 4, : sy // 4, : sx // 4] = 7
+
+
+def _patch_registry_and_backend(monkeypatch, entries, backend):
+    class FakeRegistry:
+        def search(self, **_):
+            return list(entries)
+
+        def list_organelles(self):
+            return ["mito"]
+
+    monkeypatch.setattr("micro_agent.downloader.Registry", FakeRegistry)
+    monkeypatch.setattr("micro_agent.downloader._get_backend", lambda repo: backend)
+
+
+def test_random_placement_uses_seeded_rng(tmp_path, monkeypatch):
+    """random_placement=True yields a non-centered, seed-reproducible offset."""
+    backend = FakeBackend(volume_shape=(64, 64, 64))
+    entry = _make_entry("ds_random")
+    _patch_registry_and_backend(monkeypatch, [entry], backend)
+
+    d = DataDownloader(
+        save_path=tmp_path,
+        organelle="mito",
+        require_segmentation=True,
+        max_size_gb=160 * 1024 / 1024**3,    # ~160KB → side ~32 (centered offset would be (16,16,16))
+        random_placement=True,
+        seed=42,
+    )
+    d._backends[entry.repository] = backend
+    d.run()
+    vol = _read_manifest(tmp_path)["volumes"][0]
+    side = vol["shape"][0]
+    centered = (64 - side) // 2
+    assert vol["offset"] != [centered, centered, centered], (
+        "random_placement should produce a non-centered offset"
+    )
+    # Reproducibility: same seed → same offset
+    other_dir = tmp_path.parent / "rerun"
+    DataDownloader(
+        save_path=other_dir, organelle="mito", require_segmentation=True,
+        max_size_gb=160 * 1024 / 1024**3, random_placement=True, seed=42,
+    )._backends.update({entry.repository: backend})
+    rerun = DataDownloader(
+        save_path=other_dir, organelle="mito", require_segmentation=True,
+        max_size_gb=160 * 1024 / 1024**3, random_placement=True, seed=42,
+    )
+    rerun._backends[entry.repository] = backend
+    rerun.run()
+    vol_rerun = _read_manifest(other_dir)["volumes"][0]
+    assert vol["offset"] == vol_rerun["offset"]
+
+
+def test_enforce_foreground_finds_off_center_labels(tmp_path, monkeypatch):
+    """With OffCenterFakeBackend, centered placement returns all-zero seg;
+    enforce_foreground must find the corner where labels live."""
+    backend = OffCenterFakeBackend(volume_shape=(64, 64, 64))
+    entry = _make_entry("ds_fg")
+    _patch_registry_and_backend(monkeypatch, [entry], backend)
+
+    # Sub_shape will be ~side=8 (tight budget). Labels live at [0:16, 0:16, 0:16].
+    # Centered offset would be (28,28,28) — fully outside the labeled corner → all-zero.
+    d = DataDownloader(
+        save_path=tmp_path,
+        organelle="mito",
+        require_segmentation=True,
+        max_size_gb=2560 / 1024**3,         # tiny, ~2.5KB → side ~8
+        enforce_foreground=True,
+        seed=0,
+        max_placement_attempts=64,
+    )
+    d._backends[entry.repository] = backend
+    d.run()
+
+    vol = _read_manifest(tmp_path)["volumes"][0]
+    sz = vol["shape"][0]
+    oz, oy, ox = vol["offset"]
+    # The chosen offset must overlap the labeled [0:16, 0:16, 0:16] corner.
+    assert oz < 16 and oy < 16 and ox < 16, (
+        f"enforce_foreground should land inside the labeled corner; got offset {vol['offset']}"
+    )
+
+    # And the on-disk seg actually contains nonzero labels.
+    import tensorstore as ts
+    seg_path = tmp_path / "mito" / "ds_fg.zarr" / "labels" / "mito" / "s0"
+    seg = np.asarray(ts.open({
+        "driver": "zarr3",
+        "kvstore": {"driver": "file", "path": str(seg_path)},
+    }).result().read().result())
+    assert np.any(seg != 0), "expected nonzero labels in saved seg"
+
+
+def test_enforce_foreground_falls_back_when_nothing_works(tmp_path, monkeypatch):
+    """When nothing in the volume has labels, fall back to centered placement
+    (don't fail the run)."""
+    backend = FakeBackend(volume_shape=(32, 32, 32))
+    backend.seg = np.zeros_like(backend.seg)        # zero out — no labels anywhere
+    entry = _make_entry("ds_no_fg")
+    _patch_registry_and_backend(monkeypatch, [entry], backend)
+
+    d = DataDownloader(
+        save_path=tmp_path,
+        organelle="mito",
+        require_segmentation=True,
+        max_size_gb=1.0,
+        enforce_foreground=True,
+        seed=0,
+        max_placement_attempts=4,
+    )
+    d._backends[entry.repository] = backend
+    d.run()
+
+    vol = _read_manifest(tmp_path)["volumes"][0]
+    # With shape == volume_shape (full vol fits), centered offset is (0,0,0).
+    assert vol["offset"] == [0, 0, 0]
+
+
 def test_different_repositories_use_per_repo_backend_lookup(
     tmp_path, monkeypatch, fake_backend,
 ):

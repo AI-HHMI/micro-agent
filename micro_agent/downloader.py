@@ -54,9 +54,16 @@ class DownloadReport:
 class DataDownloader:
     """Download contiguous subvolumes from matching datasets to local zarr.
 
-    Discovers datasets matching the given filters, then downloads a centered
+    Discovers datasets matching the given filters, then downloads one
     subvolume from each, distributing a total size budget evenly across
     datasets.
+
+    Placement modes:
+    - default (centered): a centered subvolume — fully deterministic
+    - random_placement=True: a random offset, sized to the budget
+    - enforce_foreground=True: probe random offsets until the segmentation
+      (or raw, if no segmentation) contains nonzero values; falls back to
+      centered placement if no probe succeeds within max_placement_attempts
 
     Output is a single OME-Zarr v3 container per dataset with nested structure:
     - ``{dataset_id}.zarr/raw/s0`` for raw image data
@@ -74,11 +81,20 @@ class DataDownloader:
         max_size_gb: Approximate total download budget in gigabytes.
         repositories: Restrict to specific repositories (default: all).
         require_segmentation: If True, only use datasets with segmentations.
-        seed: Random seed (unused currently, reserved for future offset jitter).
+        seed: Random seed for offset selection when random_placement or
+            enforce_foreground are enabled.
         modality_class: Filter by modality ("em", "fluorescence", or "").
         slab_size: Number of Z-slices to read/write at a time. Controls
             peak memory usage.
         generate_pyramid: If True, generate multiscale pyramid after download.
+        random_placement: If True, pick a random offset instead of centering
+            the subvolume in the source volume.
+        enforce_foreground: If True, reject offsets whose probe is all zeros
+            (segmentation when require_segmentation=True, otherwise raw) and
+            retry with a different random offset. Falls back to centered if
+            no foreground location is found within max_placement_attempts.
+        max_placement_attempts: Cap on random offset attempts when
+            enforce_foreground=True. Default 16.
     """
 
     _EXCLUDED_REPOS = {"EMPIAR"}
@@ -95,6 +111,9 @@ class DataDownloader:
         modality_class: str = "",
         slab_size: int = 64,
         generate_pyramid: bool = False,
+        random_placement: bool = False,
+        enforce_foreground: bool = False,
+        max_placement_attempts: int = 16,
     ) -> None:
         self.save_path = Path(save_path)
         self.organelle = organelle
@@ -105,6 +124,10 @@ class DataDownloader:
         self.modality_class = modality_class
         self.slab_size = slab_size
         self.generate_pyramid = generate_pyramid
+        self.random_placement = random_placement
+        self.enforce_foreground = enforce_foreground
+        self.max_placement_attempts = max_placement_attempts
+        self._rng = np.random.default_rng(seed)
 
         self._registry = Registry()
         self._datasets = self._find_datasets(organelle, repositories, require_segmentation, modality_class)
@@ -231,6 +254,78 @@ class DataDownloader:
         ox = max(0, (vx - sx) // 2)
 
         return (oz, oy, ox), (sz, sy, sx)
+
+    def _random_offset(
+        self,
+        vol_shape: tuple[int, ...],
+        sub_shape: tuple[int, int, int],
+    ) -> tuple[int, int, int]:
+        """Random offset whose subvolume of sub_shape fits inside vol_shape."""
+        return tuple(
+            int(self._rng.integers(0, max(1, v - s + 1)))
+            for v, s in zip(vol_shape[:3], sub_shape)
+        )  # type: ignore[return-value]
+
+    def _probe_has_foreground(
+        self,
+        entry: DatasetEntry,
+        backend: Backend,
+        offset: tuple[int, int, int],
+        shape: tuple[int, int, int],
+        scale: int,
+        seg_scale: int | None,
+    ) -> bool:
+        """Read seg (or raw) at (offset, shape) and return True if any nonzero."""
+        try:
+            if self.require_segmentation and seg_scale is not None:
+                probe = backend.read_segmentation_crop(
+                    entry, self.organelle, offset, shape, seg_scale,
+                )
+            else:
+                probe = backend.read_raw_crop(entry, offset, shape, scale)
+        except Exception as e:
+            print(f"    placement probe at {offset} failed: {e}")
+            return False
+        return bool(np.any(probe))
+
+    def _pick_offset(
+        self,
+        entry: DatasetEntry,
+        backend: Backend,
+        vol_shape: tuple[int, ...],
+        sub_shape: tuple[int, int, int],
+        centered_offset: tuple[int, int, int],
+        scale: int,
+        seg_scale: int | None,
+    ) -> tuple[int, int, int]:
+        """Pick a subvolume offset based on placement options.
+
+        Default: centered. With random_placement, returns a random offset.
+        With enforce_foreground, retries random offsets until the probe is
+        nonzero, falling back to centered when no foreground is found.
+        """
+        if not self.random_placement and not self.enforce_foreground:
+            return centered_offset
+
+        if self.enforce_foreground:
+            # Try centered first when caller did not opt into random; cheap.
+            if not self.random_placement and self._probe_has_foreground(
+                entry, backend, centered_offset, sub_shape, scale, seg_scale,
+            ):
+                return centered_offset
+            for attempt in range(self.max_placement_attempts):
+                cand = self._random_offset(vol_shape, sub_shape)
+                if self._probe_has_foreground(entry, backend, cand, sub_shape, scale, seg_scale):
+                    print(f"    foreground found at {cand} (attempt {attempt + 1})")
+                    return cand
+            print(
+                f"    no foreground found after {self.max_placement_attempts} attempts; "
+                f"falling back to centered placement"
+            )
+            return centered_offset
+
+        # random_placement only — single random pick, no probing.
+        return self._random_offset(vol_shape, sub_shape)
 
     def _download_volume(
         self,
@@ -387,7 +482,24 @@ class DataDownloader:
             seg_bytes_per_voxel = 4 if self.require_segmentation else 0
             total_bpv = bytes_per_voxel + seg_bytes_per_voxel
 
-            offset, shape = self._compute_subvolume(vol_shape, budget_per_dataset, total_bpv)
+            centered_offset, shape = self._compute_subvolume(
+                vol_shape, budget_per_dataset, total_bpv,
+            )
+
+            # Resolve seg scale up-front so foreground probes can read seg.
+            seg_scale: int | None = None
+            seg_voxel_nm: tuple[float, float, float] | None = None
+            if self.require_segmentation and entry.has_segmentation:
+                try:
+                    seg_scale = backend.pick_seg_scale(entry, self.organelle, voxel_nm)
+                    seg_voxel_nm = backend.get_seg_voxel_size(entry, self.organelle, seg_scale)
+                except Exception as e:
+                    print(f"    seg metadata resolution failed: {e}")
+                    seg_scale = None
+
+            offset = self._pick_offset(
+                entry, backend, vol_shape, shape, centered_offset, scale, seg_scale,
+            )
             print(f"    subvolume: offset={offset}, shape={shape}")
 
             out_dir = self.save_path / organelle_dir
@@ -409,10 +521,8 @@ class DataDownloader:
             # Download segmentation if requested
             seg_size = 0
             has_seg = False
-            if self.require_segmentation and entry.has_segmentation:
+            if self.require_segmentation and entry.has_segmentation and seg_scale is not None:
                 try:
-                    seg_scale = backend.pick_seg_scale(entry, self.organelle, voxel_nm)
-                    seg_voxel_nm = backend.get_seg_voxel_size(entry, self.organelle, seg_scale)
                     seg_size = self._download_volume(
                         entry, backend, seg_scale, offset, shape, seg_voxel_nm,
                         container_path, label="seg", organelle=self.organelle,
@@ -542,6 +652,22 @@ if __name__ == "__main__":
     parser.add_argument(
         "--generate-pyramid", action="store_true", help="Generate multiscale pyramid after download",
     )
+    parser.add_argument(
+        "--random-placement",
+        action="store_true",
+        help="Pick a random offset for each subvolume instead of centering",
+    )
+    parser.add_argument(
+        "--enforce-foreground",
+        action="store_true",
+        help="Reject offsets whose probe is all-zero (seg if available, else raw); retry with random offsets",
+    )
+    parser.add_argument(
+        "--max-placement-attempts",
+        type=int,
+        default=16,
+        help="Number of random offsets to try when --enforce-foreground is set",
+    )
 
     args = parser.parse_args()
 
@@ -556,5 +682,8 @@ if __name__ == "__main__":
         modality_class=args.modality_class,
         slab_size=args.slab_size,
         generate_pyramid=args.generate_pyramid,
+        random_placement=args.random_placement,
+        enforce_foreground=args.enforce_foreground,
+        max_placement_attempts=args.max_placement_attempts,
     )
     report = downloader.run()
