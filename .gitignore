@@ -1,6 +1,10 @@
 # Private notes
 meetings.md
 
+# Local downloaded data and scratch
+training_data/
+tmp/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

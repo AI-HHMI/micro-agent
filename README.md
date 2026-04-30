@@ -239,6 +239,60 @@ viewer = view_crop(sample)
 # Opens neuroglancer in browser with raw + segmentation overlay
 ```
 
+## Downloading subvolumes locally
+
+`UnifiedLoader` streams crops on demand from remote sources. When you want a **persistent local copy** for offline training or sharing, use `DataDownloader` — it writes one OME-Zarr v3 container per matching dataset, with sharded chunks, optional multiscale pyramids, and an OpenOrganelle-style `raw/s0` + `labels/{organelle}/s0` layout that `TensorSwitchBackend` can read straight back.
+
+### CLI
+
+```bash
+pixi run download ./training_data \
+    --organelle mito \
+    --resolution-nm 8 8 8 \
+    --max-size-gb 1.0 \
+    --require-segmentation \
+    --repositories OpenOrganelle \
+    --generate-pyramid \
+    --enforce-foreground \
+    --seed 42
+```
+
+### Programmatic
+
+```python
+from micro_agent.downloader import DataDownloader
+
+DataDownloader(
+    save_path="./training_data",
+    organelle="mito",
+    resolution_nm=(8.0, 8.0, 8.0),
+    max_size_gb=1.0,
+    require_segmentation=True,
+    repositories=["OpenOrganelle"],
+    generate_pyramid=True,        # build s1, s2, ... after download
+    enforce_foreground=True,      # reject crops with no labels; retry until found
+    seed=42,
+).run()
+```
+
+### Placement modes
+
+| Flag | Behavior |
+|---|---|
+| (default) | One **centered** subvolume per dataset. Deterministic. |
+| `random_placement=True` | Random offset per dataset, seeded by `seed`. May land in label-empty regions. |
+| `enforce_foreground=True` | Try centered first; if seg is all-zero, probe up to `max_placement_attempts` random offsets and pick the first non-empty one. Falls back to centered if no foreground is found, never fails the run. |
+
+### Output
+
+Each dataset becomes a single OME-Zarr v3 container under `<save_path>/<organelle>/<dataset_id>.zarr/` with `raw/s0` and (when seg is requested and present) `labels/<organelle>/s0`. A top-level `manifest.json` records the offset, shape, and source for every volume so you can trace any crop back to the original dataset.
+
+The downloaded data is itself a valid `micro_agent` backend — read it with `TensorSwitchBackend(...)` using the same API as any other source.
+
+### More examples
+
+See [examples/download_subvolumes.py](examples/download_subvolumes.py) for cell-by-cell examples (browse → equal-per-dataset → equal-per-source → random subset → enforce foreground → random placement → read back).
+
 ## Web explorer
 
 ![Micro-Agent Explorer](docs/screenshot.png)

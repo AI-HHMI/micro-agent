@@ -76,25 +76,25 @@ async def discover_now(
 @mcp.tool()
 async def discover_with_agent(
     focus: str = "",
-    provider: str = "anthropic",
     model: str = "",
 ) -> str:
     """Run an LLM-driven discovery cycle that intelligently searches for datasets.
 
     The agent plans which sources to check, extracts metadata, validates
-    accessibility, and returns candidates. Requires an API key for the
-    chosen LLM provider.
+    accessibility, and returns candidates. Requires the appropriate provider
+    API key in the environment for the chosen model (e.g. ANTHROPIC_API_KEY
+    for Claude models, OPENAI_API_KEY for GPT, etc. — routed via litellm).
 
     Args:
         focus: What to search for (e.g., "recent light sheet datasets",
             "fluorescence cell atlas", "new EM connectome data")
-        provider: LLM provider — "anthropic" or "litellm"
-        model: Model name (default: claude-sonnet-4-20250514 for anthropic)
+        model: Model name as understood by litellm (default:
+            claude-sonnet-4-20250514)
     """
     from micro_agent.agent.llm import AgentLLM
     from micro_agent.agent.discovery_agent import DiscoveryAgent
 
-    llm = AgentLLM(provider=provider, model=model or None)
+    llm = AgentLLM(model=model or None)
     agent = DiscoveryAgent(llm=llm)
     candidates = await agent.run_cycle(focus=focus)
 
